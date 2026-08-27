@@ -1,0 +1,8 @@
+servers:
+ docs = https://mcp.context7.com/mcp
+ wiki = https://mcp.deepwiki.com/mcp
+
+workflow ReactResearch:
+ step resolve = tool:docs.resolve-library-id("react hooks", "react") -> libId
+ step topics = tool:wiki.read_wiki_structure("facebook/react") -> structure
+ step insight = tool:wiki.ask_question("facebook/react", "What are the main new features in React 19?") -> answer

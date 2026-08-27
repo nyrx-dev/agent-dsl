@@ -53,6 +53,9 @@ serversBlockParser = do
   _ <- symbol ":"
   many (try serverDeclParser)
 
+argParser :: Parser Input
+argParser = (Lit <$> lexeme stringLiteral) <|> (Var <$> lexeme identifier)
+
 stepParser :: Parser Step
 stepParser = do
   keyword "step"
@@ -64,7 +67,7 @@ stepParser = do
   _ <- symbol "."
   tool <- lexeme identifier
   _ <- symbol "("
-  args <- sepBy (lexeme identifier) (symbol ",")
+  args <- sepBy argParser (symbol ",")
   _ <- symbol ")"
   _ <- symbol "->"
   bind <- lexeme identifier
@@ -72,7 +75,7 @@ stepParser = do
     { stepName = name
     , server = serverRef
     , toolName = tool
-    , stepInputs = map Var args
+    , stepInputs = args
     , bindsTo = bind
     }
 
