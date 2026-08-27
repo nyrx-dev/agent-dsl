@@ -99,9 +99,11 @@ nodeParser = (StepNode <$> stepParser) <|> (BranchNode <$> branchParser)
 
 workflowParser :: Parser Workflow
 workflowParser = do
+  spaceConsumer
   serverDecls <- option [] (try serversBlockParser)
   keyword "workflow"
   name <- lexeme identifier
   _ <- symbol ":"
   nodes <- many nodeParser
+  eof
   return Workflow { workflowName = name, wfServers = serverDecls, steps = nodes }
