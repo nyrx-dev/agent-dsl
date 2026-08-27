@@ -15,6 +15,9 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 data ToolSchema = ToolSchema
   { toolName     :: String
   , requiredArgs :: [String]
+  -- | The schema the server declares for its structuredContent, when it
+  -- declares one. Not every server does.
+  , outputSchema :: Maybe Value
   } deriving (Show)
 
 instance FromJSON ToolSchema where
@@ -22,7 +25,12 @@ instance FromJSON ToolSchema where
     name        <- obj .: "name"
     inputSchema <- obj .: "inputSchema"
     required    <- inputSchema .:? "required" .!= []
-    return ToolSchema { toolName = name, requiredArgs = required }
+    output      <- obj .:? "outputSchema"
+    return ToolSchema
+      { toolName     = name
+      , requiredArgs = required
+      , outputSchema = output
+      }
 
 newtype ToolsListResult = ToolsListResult { tools :: [ToolSchema] }
   deriving (Show)

@@ -191,9 +191,35 @@ branchSource = unlines
 
 testSchemas :: Map.Map String [ToolSchema]
 testSchemas = Map.fromList
-  [ ("docs", [ ToolSchema { Schema.toolName = "search", requiredArgs = ["query", "limit"] }
-             , ToolSchema { Schema.toolName = "resolve-library-id", requiredArgs = ["query", "libraryName"] }
+  [ ("docs", [ ToolSchema
+                 { Schema.toolName = "search"
+                 , requiredArgs    = ["query", "limit"]
+                 , outputSchema    = Nothing
+                 }
+             , ToolSchema
+                 { Schema.toolName = "resolve-library-id"
+                 , requiredArgs    = ["query", "libraryName"]
+                 , outputSchema    = Nothing
+                 }
+             , ToolSchema
+                 { Schema.toolName = "structured"
+                 , requiredArgs    = ["query"]
+                 , outputSchema    = Just (object
+                     [ "type"       .= ("object" :: String)
+                     , "properties" .= object
+                         ["result" .= object ["type" .= ("string" :: String)]]
+                     ])
+                 }
              ])
+  ]
+
+-- | A workflow whose first step binds @source@, then feeds @path@ to a
+-- second step.
+throughPath :: String -> String -> String
+throughPath source path = unlines
+  [ "workflow Demo:"
+  , " step a = tool:docs." ++ source ++ " -> out"
+  , " step b = tool:docs.search(" ++ path ++ ", \"10\") -> more"
   ]
 
 -- | Constructor names of the reported errors, in order.
@@ -263,6 +289,43 @@ typeCheckTests =
         , " else:"
         , "  step c = tool:docs.search(\"q\", \"10\") -> fromFalse"
         , " step d = tool:docs.search(fromTrue, fromFalse) -> done"
+        ]) == []
+    )
+
+  , ( "accepts a path through the result envelope"
+    , errorsIn (throughPath "search(\"q\", \"10\")" "out.content[0].text") == []
+    )
+
+  , ( "reports a misspelled field of the result envelope"
+    , errorsIn (throughPath "search(\"q\", \"10\")" "out.contnt[0].text") == ["BadPath"]
+    )
+
+  , ( "reports reaching through a scalar"
+    , errorsIn (throughPath "search(\"q\", \"10\")" "out.isError.text") == ["BadPath"]
+    )
+
+  , ( "reports indexing something that is not an array"
+    , errorsIn (throughPath "structured(\"q\")" "out.structuredContent[0]") == ["BadPath"]
+    )
+
+  , ( "accepts a path the declared output schema does have"
+    , errorsIn (throughPath "structured(\"q\")" "out.structuredContent.result") == []
+    )
+
+  , ( "reports a path the declared output schema does not have"
+    , errorsIn (throughPath "structured(\"q\")" "out.structuredContent.nope") == ["BadPath"]
+    )
+
+  , ( "leaves structuredContent alone when no output schema is declared"
+    , errorsIn (throughPath "search(\"q\", \"10\")" "out.structuredContent.anything") == []
+    )
+
+  , ( "does not check paths in a condition, which reads an absent one as null"
+    , errorsIn (unlines
+        [ "workflow Demo:"
+        , " step a = tool:docs.search(\"q\", \"10\") -> hits"
+        , " if hits.contnt:"
+        , " else:"
         ]) == []
     )
 

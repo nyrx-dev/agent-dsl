@@ -50,3 +50,11 @@ data Workflow = Workflow {
     wfServers :: [ServerDecl],
     steps :: [Node]
 } deriving (Show)
+
+-- | How a reference is written in source, for error messages.
+renderInput :: Input -> String
+renderInput (Lit s)              = show s
+renderInput (Var name selectors) = name ++ concatMap render selectors
+  where
+    render (Key key) = "." ++ key
+    render (Index i) = "[" ++ show i ++ "]"

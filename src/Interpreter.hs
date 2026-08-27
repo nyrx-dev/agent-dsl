@@ -35,14 +35,7 @@ lookupInput ctx (Var name selectors)  = Map.lookup name ctx >>= selectPath selec
 resolveInput :: Context -> Input -> Either String Value
 resolveInput ctx input = case lookupInput ctx input of
   Just value -> Right value
-  Nothing    -> Left (describeInput input ++ " is not there in the bound value")
-
-describeInput :: Input -> String
-describeInput (Lit s)              = show s
-describeInput (Var name selectors) = name ++ concatMap render selectors
-  where
-    render (Key key) = "." ++ key
-    render (Index i) = "[" ++ show i ++ "]"
+  Nothing    -> Left (renderInput input ++ " is not there in the bound value")
 
 buildArgs :: [String] -> [Value] -> Value
 buildArgs names values = object (zipWith (\n v -> Key.fromString n .= v) names values)

@@ -45,7 +45,7 @@ Every stage is real and independently testable:
 
 - **Parser** — hand-written recursive-descent combinators (Megaparsec), no code generation
 - **Schema fetching** — real JSON-RPC over HTTP to live MCP servers, handling the SSE response framing MCP servers use
-- **Type-checker** — pure; validates tool names and argument counts against fetched schemas, returns every error found, not just the first
+- **Type-checker** — pure; validates tool names, argument counts, binding references and selector paths against fetched schemas, returns every error found, not just the first
 - **Interpreter** — executes validated workflows, resolving `Var` references to prior steps' outputs and firing real `tools/call` requests
 
 ## Installation
@@ -110,6 +110,16 @@ step follow = tool:wiki.ask_question("facebook/react", answer.content[0].text) -
 
 Selectors bind tightly — no spaces around them. A path that isn't there is a runtime error rather than a silent null.
 
+Paths are type-checked before the workflow runs, against the MCP result envelope (`content`, `structuredContent`, `isError`, `_meta`) and, where the server publishes an `outputSchema` for the tool, against that too:
+
+```
+Workflow failed type-checking:
+BadPath "typo" "answer.contnt[0].text" "has no field \"contnt\"; it has \"_meta\", \"content\", \"isError\", \"structuredContent\""
+BadPath "deep" "answer.structuredContent.nope" "has no field \"nope\"; it has \"result\""
+```
+
+Where a server publishes no output schema, the shape of `structuredContent` is unknown and paths into it fall back to being caught at runtime. Paths in a *branch condition* are not checked, since a condition reads a missing path as null by design.
+
 **Branches** — conditionally run one of two step lists:
 
 ```
@@ -144,7 +154,7 @@ A companion VS Code extension ([`agent-dsl-vscode`](https://github.com/Turtle-de
 This is a working proof of concept, not a production tool yet. Known gaps, honestly:
 
 - **Positional, not named, argument matching** — arguments are matched to a schema's required parameters by position, not by name. The `.agent` file's argument order must match the schema's declared order.
-- **Selector paths are checked at runtime, not by the type-checker** — a tool's output shape isn't in its schema, so `answer.content[0].text` can only fail once the step has run.
+- **Paths into `structuredContent` are only checked for servers that publish an `outputSchema`** — for the rest, the shape isn't knowable ahead of time and the path is caught at runtime instead.
 - **Branch conditions cover equality only** — `==` and `!=` against a JSON value, plus a truthiness test. No ordering (`greater than`), no boolean operators (`and`, `or`, `not`).
 - **Runtime errors abort the workflow** — the interpreter uses `error` to stop on a failing step instead of the `Either`-based reporting the type-checker uses.
 - **No authentication support yet** — no API keys, bearer tokens, or OAuth for MCP servers that require them.
