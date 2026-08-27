@@ -2,4 +2,4 @@ servers:
  default = https://mcp.context7.com/mcp
 
 workflow BrokenDemo:
- step search = tool:default.fake-search-tool(query) -> results
+ step search = tool:default.fake-search-tool("react hooks") -> results
