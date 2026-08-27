@@ -100,6 +100,8 @@ else:
  <steps>
 ```
 
+Each arm's steps must be indented past the `if`. The branch ends at the first line back at the `if`'s own indentation, so a workflow can carry on after it.
+
 ## Editor support
 
 A companion VS Code extension ([`agent-dsl-vscode`](https://github.com/Turtle-dev3/agent-dsl-vscode)) provides:

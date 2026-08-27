@@ -87,15 +87,29 @@ stepParser = do
     , bindsTo = bind
     }
 
+currentColumn :: Parser Pos
+currentColumn = sourceColumn <$> getSourcePos
+
+-- | A node belonging to a branch arm, which must be indented past the column
+-- the 'if' starts at. Without this the arms are unbounded and swallow every
+-- node that follows the branch.
+nodeIndentedBeyond :: Pos -> Parser Node
+nodeIndentedBeyond column = do
+  here <- currentColumn
+  if here > column
+    then nodeParser
+    else fail "expected a step indented under the branch"
+
 branchParser :: Parser Branch
 branchParser = do
+  column <- currentColumn
   keyword "if"
   cond <- lexeme identifier
   _ <- symbol ":"
-  trueNodes <- many nodeParser
+  trueNodes <- many (nodeIndentedBeyond column)
   keyword "else"
   _ <- symbol ":"
-  falseNodes <- many nodeParser
+  falseNodes <- many (nodeIndentedBeyond column)
   return Branch
     { branchCondition = Var cond
     , branchTrue = trueNodes
