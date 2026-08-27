@@ -5,8 +5,14 @@ data Input =
     Lit String
     deriving (Show)
 
+data ServerDecl = ServerDecl {
+    serverAlias :: String,
+    serverUrl :: String
+} deriving (Show)
+
 data Step = Step {
     stepName :: String,
+    server :: String,
     toolName :: String,
     stepInputs :: [Input],
     bindsTo :: String
@@ -23,15 +29,6 @@ data Branch = Branch {
 
 data Workflow = Workflow {
     workflowName :: String,
+    wfServers :: [ServerDecl],
     steps :: [Node]
 } deriving (Show)
-
-
-exampleWorkflow :: Workflow
-exampleWorkflow = Workflow
-  { workflowName = "ResearchBot"
-  , steps =
-      [ StepNode $ Step { stepName = "search", toolName = "web_search", stepInputs = [Var "query"], bindsTo = "results" }
-      , StepNode $ Step { stepName = "summarize", toolName = "llm", stepInputs = [Var "results"], bindsTo = "summary" }
-      ]
-  }

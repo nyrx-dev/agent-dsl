@@ -1,2 +1,5 @@
+servers:
+ default = https://mcp.context7.com/mcp
+
 workflow Context7Demo:
- step resolve = tool:resolve-library-id(hooks, react) -> libId
+ step resolve = tool:default.resolve-library-id(hooks, react) -> libId

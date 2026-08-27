@@ -37,6 +37,22 @@ keyword kw = lexeme $ do
 symbol :: String -> Parser String
 symbol s = lexeme (string s)
 
+urlParser :: Parser String
+urlParser = lexeme (some (noneOf " \t\n"))
+
+serverDeclParser :: Parser ServerDecl
+serverDeclParser = do
+  aliasName <- lexeme identifier
+  _ <- symbol "="
+  url <- urlParser
+  return ServerDecl { serverAlias = aliasName, serverUrl = url }
+
+serversBlockParser :: Parser [ServerDecl]
+serversBlockParser = do
+  keyword "servers"
+  _ <- symbol ":"
+  many (try serverDeclParser)
+
 stepParser :: Parser Step
 stepParser = do
   keyword "step"
@@ -44,6 +60,8 @@ stepParser = do
   _ <- symbol "="
   keyword "tool"
   _ <- symbol ":"
+  serverRef <- lexeme identifier
+  _ <- symbol "."
   tool <- lexeme identifier
   _ <- symbol "("
   args <- sepBy (lexeme identifier) (symbol ",")
@@ -52,18 +70,11 @@ stepParser = do
   bind <- lexeme identifier
   return Step
     { stepName = name
+    , server = serverRef
     , toolName = tool
     , stepInputs = map Var args
     , bindsTo = bind
     }
-
-workflowParser :: Parser Workflow
-workflowParser = do
-  keyword "workflow"
-  name <- lexeme identifier
-  _ <- symbol ":"
-  nodes <- many nodeParser
-  return Workflow { workflowName = name, steps = nodes }
 
 branchParser :: Parser Branch
 branchParser = do
@@ -82,3 +93,12 @@ branchParser = do
 
 nodeParser :: Parser Node
 nodeParser = (StepNode <$> stepParser) <|> (BranchNode <$> branchParser)
+
+workflowParser :: Parser Workflow
+workflowParser = do
+  serverDecls <- option [] (try serversBlockParser)
+  keyword "workflow"
+  name <- lexeme identifier
+  _ <- symbol ":"
+  nodes <- many nodeParser
+  return Workflow { workflowName = name, wfServers = serverDecls, steps = nodes }

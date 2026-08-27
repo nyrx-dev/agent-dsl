@@ -3,33 +3,38 @@ module TypeCheck where
 import AST
 import qualified Schema
 import Data.List (find)
+import qualified Data.Map as Map
 
 data TypeError
-  = ToolNotFound String String        -- step name, tool name
-  | TooFewArgs String String Int Int  -- step name, tool name, required count, provided count
+  = ServerNotFound String String
+  | ToolNotFound String String String
+  | TooFewArgs String String Int Int
   deriving (Show)
 
 findTool :: [Schema.ToolSchema] -> String -> Maybe Schema.ToolSchema
 findTool schemas name = find (\s -> Schema.toolName s == name) schemas
 
-checkStep :: [Schema.ToolSchema] -> Step -> [TypeError]
-checkStep schemas step =
-  case findTool schemas (toolName step) of
-    Nothing -> [ToolNotFound (stepName step) (toolName step)]
-    Just schema ->
-      let required = length (Schema.requiredArgs schema)
-          provided = length (stepInputs step)
-      in if provided < required
-         then [TooFewArgs (stepName step) (toolName step) required provided]
-         else []
+checkStep :: Map.Map String [Schema.ToolSchema] -> Step -> [TypeError]
+checkStep schemaMap step =
+  case Map.lookup (server step) schemaMap of
+    Nothing -> [ServerNotFound (stepName step) (server step)]
+    Just schemas ->
+      case findTool schemas (toolName step) of
+        Nothing -> [ToolNotFound (stepName step) (server step) (toolName step)]
+        Just schema ->
+          let required = length (Schema.requiredArgs schema)
+              provided = length (stepInputs step)
+          in if provided < required
+             then [TooFewArgs (stepName step) (toolName step) required provided]
+             else []
 
-checkNode :: [Schema.ToolSchema] -> Node -> [TypeError]
-checkNode schemas (StepNode step) = checkStep schemas step
-checkNode schemas (BranchNode branch) =
-  concatMap (checkNode schemas) (branchTrue branch) ++
-  concatMap (checkNode schemas) (branchFalse branch)
+checkNode :: Map.Map String [Schema.ToolSchema] -> Node -> [TypeError]
+checkNode schemaMap (StepNode step) = checkStep schemaMap step
+checkNode schemaMap (BranchNode branch) =
+  concatMap (checkNode schemaMap) (branchTrue branch) ++
+  concatMap (checkNode schemaMap) (branchFalse branch)
 
-typeCheck :: [Schema.ToolSchema] -> Workflow -> Either [TypeError] ()
-typeCheck schemas workflow =
-  let errors = concatMap (checkNode schemas) (steps workflow)
+typeCheck :: Map.Map String [Schema.ToolSchema] -> Workflow -> Either [TypeError] ()
+typeCheck schemaMap workflow =
+  let errors = concatMap (checkNode schemaMap) (steps workflow)
   in if null errors then Right () else Left errors
