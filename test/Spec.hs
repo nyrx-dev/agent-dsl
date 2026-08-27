@@ -11,7 +11,7 @@ import qualified Data.Map as Map
 import Data.Aeson (Value (..), decode, object, toJSON, (.=))
 
 import AST
-import Interpreter (buildArgs, isTruthy, resolveInput)
+import Interpreter (buildArgs, evalCondition, isTruthy, resolveInput)
 import Parser (workflowParser)
 import Schema hiding (toolName)
 import qualified Schema
@@ -134,6 +134,20 @@ parserTests =
         Left _ -> False
     )
 
+  , ( "parses a bare condition as a truthiness test"
+    , conditionOf " if flag:\n else:\n" == Just (Truthy (Var "flag" []))
+    )
+
+  , ( "parses an equality condition"
+    , conditionOf " if answer.isError == \"no\":\n else:\n"
+        == Just (Compare Equals (Var "answer" [Key "isError"]) (Lit "no"))
+    )
+
+  , ( "parses an inequality condition"
+    , conditionOf " if a != b:\n else:\n"
+        == Just (Compare NotEquals (Var "a" []) (Var "b" []))
+    )
+
   , ( "parses both arms of a branch"
     , case parseWorkflow branchSource of
         Right wf -> case steps wf of
@@ -145,6 +159,13 @@ parserTests =
   ]
   where
     toCRLF = concatMap (\c -> if c == '\n' then "\r\n" else [c])
+
+conditionOf :: String -> Maybe Condition
+conditionOf body = case parseWorkflow ("workflow Demo:\n" ++ body) of
+  Right wf -> case steps wf of
+    [BranchNode b] -> Just (branchCondition b)
+    _              -> Nothing
+  Left _ -> Nothing
 
 simpleSource :: String
 simpleSource = unlines
@@ -243,6 +264,11 @@ typeCheckTests =
         , "  step c = tool:docs.search(\"q\", \"10\") -> fromFalse"
         , " step d = tool:docs.search(fromTrue, fromFalse) -> done"
         ]) == []
+    )
+
+  , ( "reports unbound names on both sides of a comparison"
+    , errorsIn (unlines ["workflow Demo:", " if left == right:", " else:"])
+        == ["UnboundVar", "UnboundVar"]
     )
 
   , ( "reports every error, not just the first"
@@ -359,6 +385,24 @@ interpreterTests =
         == object ["query" .= ("react" :: String), "limit" .= ("10" :: String)]
     )
 
+  , ( "takes the else arm when a field is false"
+    , not (evalCondition boundCtx (Truthy (Var "answer" [Key "isError"])))
+    )
+
+  , ( "reads a field that is not there as false rather than failing"
+    , not (evalCondition boundCtx (Truthy (Var "answer" [Key "nope"])))
+    )
+
+  , ( "compares a selector against a string literal"
+    , evalCondition boundCtx
+        (Compare Equals (Var "answer" [Key "content", Index 0, Key "text"]) (Lit "hello"))
+    )
+
+  , ( "reads an inequality as the negation of the equality"
+    , evalCondition boundCtx
+        (Compare NotEquals (Var "answer" [Key "content", Index 0, Key "text"]) (Lit "other"))
+    )
+
   , ( "treats null, false, zero and empty containers as false"
     , not (any isTruthy [Null, Bool False, Number 0, String "", object [], toJSON ([] :: [Int])])
     )
@@ -373,5 +417,8 @@ interpreterTests =
 boundCtx :: Map.Map String Value
 boundCtx = Map.fromList
   [ ("hits", Bool True)
-  , ("answer", object ["content" .= [object ["text" .= ("hello" :: String)]]])
+  , ("answer", object
+      [ "content" .= [object ["text" .= ("hello" :: String)]]
+      , "isError" .= False
+      ])
   ]

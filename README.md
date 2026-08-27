@@ -119,6 +119,16 @@ else:
  <steps>
 ```
 
+A condition is either a truthiness test on a value, or a comparison:
+
+```
+if answer.isError:                      # null, false, 0, "", [] and {} are false
+if answer.content[0].type == "text":
+if answer.content[0].type != "text":
+```
+
+Comparisons match JSON values, so a string literal only equals a JSON string. A selector that isn't there reads as null in a condition (rather than failing, as it would in an argument), so asking about a field a tool only sometimes returns is safe.
+
 Each arm's steps must be indented past the `if`. The branch ends at the first line back at the `if`'s own indentation, so a workflow can carry on after it.
 
 ## Editor support
@@ -135,7 +145,7 @@ This is a working proof of concept, not a production tool yet. Known gaps, hones
 
 - **Positional, not named, argument matching** — arguments are matched to a schema's required parameters by position, not by name. The `.agent` file's argument order must match the schema's declared order.
 - **Selector paths are checked at runtime, not by the type-checker** — a tool's output shape isn't in its schema, so `answer.content[0].text` can only fail once the step has run.
-- **Branch conditions are simplistic** — a condition is currently just a truthy/falsy check on a bound value, not a real comparison (`equals`, `greater than`, etc).
+- **Branch conditions cover equality only** — `==` and `!=` against a JSON value, plus a truthiness test. No ordering (`greater than`), no boolean operators (`and`, `or`, `not`).
 - **Runtime errors abort the workflow** — the interpreter uses `error` to stop on a failing step instead of the `Either`-based reporting the type-checker uses.
 - **No authentication support yet** — no API keys, bearer tokens, or OAuth for MCP servers that require them.
 - **MCP-only** — no support yet for calling plain REST/API endpoints outside the MCP protocol.

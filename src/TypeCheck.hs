@@ -41,6 +41,10 @@ checkStep schemaMap bound step = varErrors ++ callErrors
                    then [TooManyArgs (stepName step) (toolName step) required provided]
                    else []
 
+conditionInputs :: Condition -> [Input]
+conditionInputs (Truthy input)         = [input]
+conditionInputs (Compare _ left right) = [left, right]
+
 -- | Checks a node against the bindings in scope, returning its errors along
 -- with the bindings that are in scope after it.
 checkNode :: Map.Map String [Schema.ToolSchema] -> Set.Set String -> Node
@@ -50,9 +54,11 @@ checkNode schemaMap bound (StepNode step) =
 checkNode schemaMap bound (BranchNode branch) =
   (condErrors ++ trueErrors ++ falseErrors, Set.union trueBound falseBound)
   where
-    condErrors = case branchCondition branch of
-      Var name _ | not (Set.member name bound) -> [UnboundVar "if" name]
-      _                                        -> []
+    condErrors =
+      [ UnboundVar "if" name
+      | Var name _ <- conditionInputs (branchCondition branch)
+      , not (Set.member name bound)
+      ]
     (trueErrors,  trueBound)  = checkNodes schemaMap bound (branchTrue branch)
     (falseErrors, falseBound) = checkNodes schemaMap bound (branchFalse branch)
 

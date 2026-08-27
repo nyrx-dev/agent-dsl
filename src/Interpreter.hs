@@ -69,11 +69,11 @@ runStep sessions schemaMap ctx step =
 
 runNode :: Map.Map String Schema.Session -> Map.Map String [Schema.ToolSchema] -> Context -> Node -> IO Context
 runNode sessions schemaMap ctx (StepNode step) = runStep sessions schemaMap ctx step
-runNode sessions schemaMap ctx (BranchNode branch) =
-  let cond = fromMaybe Null (lookupInput ctx (branchCondition branch))
-  in if isTruthy cond
-       then runNodes sessions schemaMap ctx (branchTrue branch)
-       else runNodes sessions schemaMap ctx (branchFalse branch)
+runNode sessions schemaMap ctx (BranchNode branch)
+  | evalCondition ctx (branchCondition branch) =
+      runNodes sessions schemaMap ctx (branchTrue branch)
+  | otherwise =
+      runNodes sessions schemaMap ctx (branchFalse branch)
 
 -- | JSON truthiness: null, false, zero, and the empty string, array and
 -- object are false. A selector that is not there counts as null, so that a
@@ -85,6 +85,16 @@ isTruthy (String text)   = not (T.null text)
 isTruthy (Number n)      = n /= 0
 isTruthy (Array items)   = not (Prelude.null (toList items))
 isTruthy (Object fields) = not (KeyMap.null fields)
+
+-- | A condition reads a selector that is not there as null rather than
+-- failing, so that it can ask about a field a tool only sometimes returns.
+valueOf :: Context -> Input -> Value
+valueOf ctx = fromMaybe Null . lookupInput ctx
+
+evalCondition :: Context -> Condition -> Bool
+evalCondition ctx (Truthy input) = isTruthy (valueOf ctx input)
+evalCondition ctx (Compare Equals    left right) = valueOf ctx left == valueOf ctx right
+evalCondition ctx (Compare NotEquals left right) = valueOf ctx left /= valueOf ctx right
 
 runNodes :: Map.Map String Schema.Session -> Map.Map String [Schema.ToolSchema] -> Context -> [Node] -> IO Context
 runNodes _ _ ctx [] = return ctx

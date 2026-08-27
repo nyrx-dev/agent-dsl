@@ -113,11 +113,22 @@ nodeIndentedBeyond column = do
     then nodeParser
     else fail "expected a step indented under the branch"
 
+compareOpParser :: Parser CompareOp
+compareOpParser = (Equals <$ symbol "==") <|> (NotEquals <$ symbol "!=")
+
+conditionParser :: Parser Condition
+conditionParser = do
+  left <- argParser
+  option (Truthy left) $ do
+    op    <- compareOpParser
+    right <- argParser
+    return (Compare op left right)
+
 branchParser :: Parser Branch
 branchParser = do
   column <- currentColumn
   keyword "if"
-  cond <- varParser
+  cond <- conditionParser
   _ <- symbol ":"
   trueNodes <- many (nodeIndentedBeyond column)
   keyword "else"
