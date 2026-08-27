@@ -63,6 +63,14 @@ This installs `agent-dsl` onto your `PATH`. Verify with `agent-dsl` — you shou
 
 _(Pre-built binaries for common platforms are planned, so this won't always require the Haskell toolchain to be installed.)_
 
+## Tests
+
+```bash
+cabal test
+```
+
+The suite covers the parser, type-checker, SSE framing and JSON-RPC decoding, and argument binding. It makes no network calls, so it runs offline.
+
 ## Usage
 
 ```bash
