@@ -44,9 +44,9 @@ runStep urlMap schemaMap ctx step =
                         ]
                     ]
               respBytes <- Schema.callMcp url body
-              case decode (Schema.stripSSE respBytes) :: Maybe Value of
-                Nothing     -> error ("Couldn't parse response for step " ++ stepName step)
-                Just result -> return (Map.insert (bindsTo step) result ctx)
+              case Schema.decodeEvent respBytes :: Maybe Schema.RpcResponse of
+                Nothing   -> error ("Couldn't parse response for step " ++ stepName step)
+                Just resp -> return (Map.insert (bindsTo step) (Schema.rpcValue resp) ctx)
 
 runNode :: Map.Map String String -> Map.Map String [Schema.ToolSchema] -> Context -> Node -> IO Context
 runNode urlMap schemaMap ctx (StepNode step) = runStep urlMap schemaMap ctx step

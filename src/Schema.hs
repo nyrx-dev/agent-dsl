@@ -2,6 +2,8 @@
 module Schema where
 
 import Data.Aeson
+import Data.Aeson.Types (Parser)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Network.HTTP.Simple
 import qualified Data.ByteString.Lazy.Char8 as BL
 
@@ -18,13 +20,6 @@ instance FromJSON ToolSchema where
     required    <- inputSchema .:? "required" .!= []
     return ToolSchema { toolName = name, requiredArgs = required }
 
-fetchToolSchema :: String -> IO (Maybe ToolSchema)
-fetchToolSchema url = do
-  request  <- parseRequest url
-  response <- httpLBS request
-  let body = getResponseBody response
-  return (decode body)
-
 initializeRequest :: Int -> Value
 initializeRequest reqId = object
   [ "jsonrpc" .= ("2.0" :: String)
@@ -40,11 +35,45 @@ initializeRequest reqId = object
       ]
   ]
 
-stripSSE :: BL.ByteString -> BL.ByteString
-stripSSE bs =
-  case BL.stripPrefix (BL.pack "data: ") (BL.dropWhile (/= 'd') bs) of
-    Just rest -> rest
-    Nothing   -> bs
+-- | Split an SSE body into its per-event data payloads, in stream order.
+-- A body that is not SSE-framed (plain JSON) comes back as a single payload.
+sseEvents :: BL.ByteString -> [BL.ByteString]
+sseEvents bs =
+  case filter (not . Prelude.null) (map dataLines (splitEvents allLines)) of
+    []      -> [bs]
+    chunks  -> map (BL.intercalate (BL.pack "\n")) chunks
+  where
+    allLines = map dropCR (BL.lines bs)
+
+    dropCR line
+      | not (BL.null line) && BL.last line == '\r' = BL.init line
+      | otherwise                                  = line
+
+    splitEvents ls = case break BL.null ls of
+      (chunk, [])       -> [chunk]
+      (chunk, _ : rest) -> chunk : splitEvents rest
+
+    dataLines chunk =
+      [ BL.dropWhile (== ' ') payload
+      | line <- chunk
+      , Just payload <- [BL.stripPrefix (BL.pack "data:") line]
+      ]
+
+-- | Decode the first SSE event whose payload has the expected shape. Servers
+-- interleave keep-alive comments and progress notifications with the actual
+-- response, so the first event is not necessarily the one we want.
+decodeEvent :: FromJSON a => BL.ByteString -> Maybe a
+decodeEvent bs = listToMaybe (mapMaybe decode (sseEvents bs))
+
+-- | A JSON-RPC response, as opposed to a notification. Responses carry an
+-- "id"; notifications do not.
+newtype RpcResponse = RpcResponse { rpcValue :: Value }
+  deriving (Show)
+
+instance FromJSON RpcResponse where
+  parseJSON = withObject "RpcResponse" $ \obj -> do
+    _ <- obj .: "id" :: Parser Value
+    return (RpcResponse (Object obj))
 
 callMcp :: String -> Value -> IO BL.ByteString
 callMcp url body = do

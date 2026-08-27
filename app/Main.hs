@@ -4,7 +4,7 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 import Text.Megaparsec (runParser, errorBundlePretty)
-import Data.Aeson (decode, Value)
+import Data.Aeson (Value)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import qualified Data.Map as Map
@@ -72,7 +72,7 @@ fetchAllSchemas decls = do
 fetchSchemas :: String -> IO [Schema.ToolSchema]
 fetchSchemas url = do
   resp <- Schema.callMcp url (Schema.toolsListRequest 1)
-  case decode (Schema.stripSSE resp) :: Maybe Schema.ToolsListResult of
+  case Schema.decodeEvent resp :: Maybe Schema.ToolsListResult of
     Nothing -> do
       hPutStrLn stderr ("Failed to fetch or parse tool schemas from " ++ url)
       exitFailure
