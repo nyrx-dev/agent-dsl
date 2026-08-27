@@ -81,7 +81,7 @@ The two example files in `examples/` are a good starting point:
 
 - `examples/context7-demo.agent` — the smallest thing that runs: one server, one step
 - `examples/linkedin-demo.agent` — a real, working multi-server workflow (Context7 + DeepWiki)
-- `examples/advanced-demo.agent` — exercises the whole syntax: two servers, four tools, a nested branch, an escaped quote inside a string, and a step that picks up after the branch closes
+- `examples/advanced-demo.agent` — exercises the whole syntax: two servers, four tools, one step's answer fed into the next through a selector path, a truthiness branch and a nested comparison branch, and a step that picks up after the branch closes
 - `examples/broken-demo.agent` — deliberately references a tool that doesn't exist, to demonstrate the type-checker catching it before execution
 
 ## Syntax

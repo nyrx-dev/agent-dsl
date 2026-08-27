@@ -4,17 +4,16 @@ servers:
 
 workflow FrameworkResearch:
  step resolveReact = tool:docs.resolve-library-id("react hooks", "react") -> reactLib
- step resolveVue = tool:docs.resolve-library-id("composition api", "vue") -> vueLib
 
- if reactLib:
-  step reactTopics = tool:wiki.read_wiki_structure("facebook/react") -> reactStructure
-  step reactHooks = tool:wiki.ask_question("facebook/react", "When does a \"stale closure\" bite in useEffect, and how do I avoid it?") -> reactAnswer
+ if reactLib.isError:
+  step reportFailure = tool:wiki.ask_question("facebook/react", "What is React?") -> summary
+ else:
+  step namedHook = tool:wiki.ask_question("facebook/react", "Name one hook added in React 19. Reply with only its name.") -> hookName
+  step explainHook = tool:wiki.ask_question("facebook/react", hookName.content[0].text) -> summary
 
-  if vueLib:
-   step vueReactivity = tool:wiki.ask_question("vuejs/core", "How does the reactivity system track dependencies?") -> vueAnswer
+  if hookName.content[0].type == "text":
+   step reactTopics = tool:wiki.read_wiki_structure("facebook/react") -> reactStructure
   else:
    step vueTopics = tool:wiki.read_wiki_structure("vuejs/core") -> vueStructure
- else:
-  step reactBasics = tool:wiki.ask_question("facebook/react", "What is React?") -> reactAnswer
 
- step closing = tool:wiki.read_wiki_structure("facebook/react") -> wrapUp
+ step compare = tool:wiki.ask_question("vuejs/core", "How does the reactivity system track dependencies?") -> vueAnswer
