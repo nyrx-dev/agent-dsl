@@ -49,7 +49,7 @@ runFile filePath = do
             dupes -> die ("Duplicate server alias(es): " ++ intercalate ", " dupes)
 
           putStrLn "Fetching tool schemas..."
-          (urlMap, schemaMap) <- fetchAllSchemas (wfServers workflow)
+          (sessions, schemaMap) <- fetchAllSchemas (wfServers workflow)
 
           case typeCheck schemaMap workflow of
             Left errors -> do
@@ -59,7 +59,7 @@ runFile filePath = do
 
             Right () -> do
               putStrLn "Type-check passed. Running workflow..."
-              finalCtx <- runWorkflow urlMap schemaMap Map.empty workflow
+              finalCtx <- runWorkflow sessions schemaMap Map.empty workflow
               putStrLn "Workflow finished. Final context:"
               printContext finalCtx
 
@@ -71,30 +71,25 @@ duplicateAliases decls =
   where
     counts = Map.fromListWith (+) [(serverAlias d, 1) | d <- decls]
 
-fetchAllSchemas :: [ServerDecl] -> IO (Map.Map String String, Map.Map String [Schema.ToolSchema])
+-- | Open a session against every declared server and fetch its tool schemas.
+fetchAllSchemas :: [ServerDecl]
+                -> IO (Map.Map String Schema.Session, Map.Map String [Schema.ToolSchema])
 fetchAllSchemas decls = do
-  pairs <- mapM fetchOne decls
-  let urlMap = Map.fromList [(serverAlias d, serverUrl d) | d <- decls]
-  return (urlMap, Map.fromList pairs)
+  entries <- mapM openOne decls
+  return ( Map.fromList [(alias, session) | (alias, session, _) <- entries]
+         , Map.fromList [(alias, schemas) | (alias, _, schemas) <- entries]
+         )
   where
-    fetchOne decl = do
+    openOne decl = do
       putStrLn ("  " ++ serverAlias decl ++ " -> " ++ serverUrl decl)
-      schemas <- fetchSchemas (serverUrl decl)
-      return (serverAlias decl, schemas)
-
-fetchSchemas :: String -> IO [Schema.ToolSchema]
-fetchSchemas url = do
-  resp <- Schema.callMcp url (Schema.toolsListRequest 1)
-  case Schema.decodeEvent resp :: Maybe Schema.ToolsListResult of
-    Nothing -> do
-      case Schema.decodeEvent resp :: Maybe Schema.RpcError of
-        Just rpcErr ->
-          hPutStrLn stderr ("Server " ++ url ++ " rejected tools/list: "
-                            ++ Schema.rpcErrorMessage rpcErr)
-        Nothing ->
-          hPutStrLn stderr ("Failed to fetch or parse tool schemas from " ++ url)
-      exitFailure
-    Just result -> return (Schema.tools result)
+      opened <- Schema.openSession (serverUrl decl)
+      case opened of
+        Left err -> die ("Could not initialize " ++ serverUrl decl ++ ": " ++ err)
+        Right session -> do
+          listed <- Schema.toolsList session
+          case listed of
+            Left err      -> die ("Could not list tools on " ++ serverUrl decl ++ ": " ++ err)
+            Right schemas -> return (serverAlias decl, session, schemas)
 
 printContext :: Map.Map String Value -> IO ()
 printContext ctx = mapM_ printEntry (Map.toList ctx)

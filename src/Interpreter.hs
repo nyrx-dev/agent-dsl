@@ -21,11 +21,11 @@ resolveInput ctx (Var name) =
 buildArgs :: [String] -> [Value] -> Value
 buildArgs names values = object (zipWith (\n v -> Key.fromString n .= v) names values)
 
-runStep :: Map.Map String String -> Map.Map String [Schema.ToolSchema] -> Context -> Step -> IO Context
-runStep urlMap schemaMap ctx step =
-  case Map.lookup (server step) urlMap of
+runStep :: Map.Map String Schema.Session -> Map.Map String [Schema.ToolSchema] -> Context -> Step -> IO Context
+runStep sessions schemaMap ctx step =
+  case Map.lookup (server step) sessions of
     Nothing -> error ("Unknown server alias at runtime: " ++ server step)
-    Just url ->
+    Just session ->
       case Map.lookup (server step) schemaMap of
         Nothing -> error ("No schemas fetched for server: " ++ server step)
         Just schemas ->
@@ -34,48 +34,29 @@ runStep urlMap schemaMap ctx step =
             Just schema -> do
               let inputs  = map (resolveInput ctx) (stepInputs step)
                   argsObj = buildArgs (Schema.requiredArgs schema) inputs
-                  body = object
-                    [ "jsonrpc" .= ("2.0" :: String)
-                    , "id"      .= (1 :: Int)
-                    , "method"  .= ("tools/call" :: String)
-                    , "params"  .= object
-                        [ "name"      .= toolName step
-                        , "arguments" .= argsObj
-                        ]
-                    ]
-              respBytes <- Schema.callMcp url body
-              case Schema.decodeEvent respBytes :: Maybe Schema.RpcError of
-                Just rpcErr ->
-                  error ("Step " ++ stepName step ++ " failed: "
-                         ++ Schema.rpcErrorMessage rpcErr)
-                Nothing ->
-                  case Schema.decodeEvent respBytes :: Maybe Schema.ToolFailure of
-                    Just toolErr ->
-                      error ("Step " ++ stepName step ++ " returned a tool error: "
-                             ++ Schema.toolFailureText toolErr)
-                    Nothing ->
-                      case Schema.decodeEvent respBytes :: Maybe Schema.RpcResponse of
-                        Nothing   -> error ("Couldn't parse response for step " ++ stepName step)
-                        Just resp -> return (Map.insert (bindsTo step) (Schema.rpcValue resp) ctx)
+              outcome <- Schema.callTool session (toolName step) argsObj
+              case outcome of
+                Left err     -> error ("Step " ++ stepName step ++ " failed: " ++ err)
+                Right result -> return (Map.insert (bindsTo step) result ctx)
 
-runNode :: Map.Map String String -> Map.Map String [Schema.ToolSchema] -> Context -> Node -> IO Context
-runNode urlMap schemaMap ctx (StepNode step) = runStep urlMap schemaMap ctx step
-runNode urlMap schemaMap ctx (BranchNode branch) =
+runNode :: Map.Map String Schema.Session -> Map.Map String [Schema.ToolSchema] -> Context -> Node -> IO Context
+runNode sessions schemaMap ctx (StepNode step) = runStep sessions schemaMap ctx step
+runNode sessions schemaMap ctx (BranchNode branch) =
   let cond     = resolveInput ctx (branchCondition branch)
       isTruthy = case cond of
                    Bool False -> False
                    Null       -> False
                    _          -> True
   in if isTruthy
-       then runNodes urlMap schemaMap ctx (branchTrue branch)
-       else runNodes urlMap schemaMap ctx (branchFalse branch)
+       then runNodes sessions schemaMap ctx (branchTrue branch)
+       else runNodes sessions schemaMap ctx (branchFalse branch)
 
-runNodes :: Map.Map String String -> Map.Map String [Schema.ToolSchema] -> Context -> [Node] -> IO Context
+runNodes :: Map.Map String Schema.Session -> Map.Map String [Schema.ToolSchema] -> Context -> [Node] -> IO Context
 runNodes _ _ ctx [] = return ctx
-runNodes urlMap schemaMap ctx (n:ns) = do
-  ctx' <- runNode urlMap schemaMap ctx n
-  runNodes urlMap schemaMap ctx' ns
+runNodes sessions schemaMap ctx (n:ns) = do
+  ctx' <- runNode sessions schemaMap ctx n
+  runNodes sessions schemaMap ctx' ns
 
-runWorkflow :: Map.Map String String -> Map.Map String [Schema.ToolSchema] -> Context -> Workflow -> IO Context
-runWorkflow urlMap schemaMap initialCtx workflow =
-  runNodes urlMap schemaMap initialCtx (steps workflow)
+runWorkflow :: Map.Map String Schema.Session -> Map.Map String [Schema.ToolSchema] -> Context -> Workflow -> IO Context
+runWorkflow sessions schemaMap initialCtx workflow =
+  runNodes sessions schemaMap initialCtx (steps workflow)
