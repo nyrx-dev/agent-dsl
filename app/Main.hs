@@ -1,12 +1,13 @@
 module Main where
 
 import System.Environment (getArgs)
-import System.Exit (exitFailure)
+import System.Exit (die, exitFailure)
 import System.IO (hPutStrLn, stderr)
 import Text.Megaparsec (runParser, errorBundlePretty)
 import Data.Aeson (Value)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.ByteString.Lazy.Char8 as BLC
+import Data.List (intercalate)
 import qualified Data.Map as Map
 
 import AST (workflowName, wfServers, serverAlias, serverUrl, ServerDecl)
@@ -43,6 +44,10 @@ runFile filePath = do
           hPutStrLn stderr "Workflow declares no servers. Add a 'servers:' block."
           exitFailure
         else do
+          case duplicateAliases (wfServers workflow) of
+            []    -> return ()
+            dupes -> die ("Duplicate server alias(es): " ++ intercalate ", " dupes)
+
           putStrLn "Fetching tool schemas..."
           (urlMap, schemaMap) <- fetchAllSchemas (wfServers workflow)
 
@@ -57,6 +62,14 @@ runFile filePath = do
               finalCtx <- runWorkflow urlMap schemaMap Map.empty workflow
               putStrLn "Workflow finished. Final context:"
               printContext finalCtx
+
+-- | Aliases declared more than once. Map.fromList would silently keep only
+-- the last URL for each, leaving the earlier server unreachable.
+duplicateAliases :: [ServerDecl] -> [String]
+duplicateAliases decls =
+  [ alias | (alias, count) <- Map.toList counts, count > (1 :: Int) ]
+  where
+    counts = Map.fromListWith (+) [(serverAlias d, 1) | d <- decls]
 
 fetchAllSchemas :: [ServerDecl] -> IO (Map.Map String String, Map.Map String [Schema.ToolSchema])
 fetchAllSchemas decls = do
