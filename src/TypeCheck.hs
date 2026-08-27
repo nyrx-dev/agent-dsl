@@ -22,7 +22,7 @@ checkStep schemaMap bound step = varErrors ++ callErrors
   where
     varErrors =
       [ UnboundVar (stepName step) name
-      | Var name <- stepInputs step
+      | Var name _ <- stepInputs step
       , not (Set.member name bound)
       ]
 
@@ -51,8 +51,8 @@ checkNode schemaMap bound (BranchNode branch) =
   (condErrors ++ trueErrors ++ falseErrors, Set.union trueBound falseBound)
   where
     condErrors = case branchCondition branch of
-      Var name | not (Set.member name bound) -> [UnboundVar "if" name]
-      _                                      -> []
+      Var name _ | not (Set.member name bound) -> [UnboundVar "if" name]
+      _                                        -> []
     (trueErrors,  trueBound)  = checkNodes schemaMap bound (branchTrue branch)
     (falseErrors, falseBound) = checkNodes schemaMap bound (branchFalse branch)
 

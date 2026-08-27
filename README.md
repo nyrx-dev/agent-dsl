@@ -99,7 +99,16 @@ servers:
 step <name> = tool:<alias>.<tool-name>(<args>) -> <binding>
 ```
 
-Arguments are either quoted string literals (`"like this"`) or bare identifiers referencing an earlier step's binding. A binding must be defined by an earlier step; an unknown name is a type error, not a literal. Inside a string, `\"`, `\\`, `\n` and `\t` are escapes; a string may not span lines.
+Arguments are either quoted string literals (`"like this"`) or references to an earlier step's binding. A binding must be defined by an earlier step; an unknown name is a type error, not a literal. Inside a string, `\"`, `\\`, `\n` and `\t` are escapes; a string may not span lines.
+
+A binding holds the tool's result, so reach into it with `.field` and `[index]` to get at the part you want:
+
+```
+step ask = tool:wiki.ask_question("facebook/react", "Name one hook added in React 19.") -> answer
+step follow = tool:wiki.ask_question("facebook/react", answer.content[0].text) -> detail
+```
+
+Selectors bind tightly — no spaces around them. A path that isn't there is a runtime error rather than a silent null.
 
 **Branches** — conditionally run one of two step lists:
 
@@ -125,6 +134,7 @@ A companion VS Code extension ([`agent-dsl-vscode`](https://github.com/Turtle-de
 This is a working proof of concept, not a production tool yet. Known gaps, honestly:
 
 - **Positional, not named, argument matching** — arguments are matched to a schema's required parameters by position, not by name. The `.agent` file's argument order must match the schema's declared order.
+- **Selector paths are checked at runtime, not by the type-checker** — a tool's output shape isn't in its schema, so `answer.content[0].text` can only fail once the step has run.
 - **Branch conditions are simplistic** — a condition is currently just a truthy/falsy check on a bound value, not a real comparison (`equals`, `greater than`, etc).
 - **Runtime errors abort the workflow** — the interpreter uses `error` to stop on a failing step instead of the `Either`-based reporting the type-checker uses.
 - **No authentication support yet** — no API keys, bearer tokens, or OAuth for MCP servers that require them.

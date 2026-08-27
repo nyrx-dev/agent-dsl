@@ -61,8 +61,21 @@ serversBlockParser = do
   _ <- symbol ":"
   many (try serverDeclParser)
 
+selectorParser :: Parser Selector
+selectorParser =
+      (Key <$> (char '.' *> identifier))
+  <|> (Index <$> (char '[' *> index <* char ']'))
+  where
+    index = read <$> some digitChar
+
+-- | A reference to a binding, optionally reaching into it: @answer@,
+-- @answer.content[0].text@. Selectors bind tightly, so no space is allowed
+-- around them.
+varParser :: Parser Input
+varParser = lexeme (Var <$> identifier <*> many selectorParser)
+
 argParser :: Parser Input
-argParser = (Lit <$> lexeme stringLiteral) <|> (Var <$> lexeme identifier)
+argParser = (Lit <$> lexeme stringLiteral) <|> varParser
 
 stepParser :: Parser Step
 stepParser = do
@@ -104,14 +117,14 @@ branchParser :: Parser Branch
 branchParser = do
   column <- currentColumn
   keyword "if"
-  cond <- lexeme identifier
+  cond <- varParser
   _ <- symbol ":"
   trueNodes <- many (nodeIndentedBeyond column)
   keyword "else"
   _ <- symbol ":"
   falseNodes <- many (nodeIndentedBeyond column)
   return Branch
-    { branchCondition = Var cond
+    { branchCondition = cond
     , branchTrue = trueNodes
     , branchFalse = falseNodes
     }

@@ -28,8 +28,7 @@ newtype ToolsListResult = ToolsListResult { tools :: [ToolSchema] }
   deriving (Show)
 
 instance FromJSON ToolsListResult where
-  parseJSON = withObject "ToolsListResult" $ \obj -> do
-    result <- obj .: "result"
+  parseJSON = withObject "ToolsListResult" $ \result -> do
     listed <- result .: "tools"
     return (ToolsListResult listed)
 
@@ -66,9 +65,9 @@ sseEvents bs =
 -- | A JSON-RPC response: the request id it answers, the error it reports if
 -- any, and the envelope itself. Notifications carry no id and so never parse.
 data RpcEnvelope = RpcEnvelope
-  { envelopeId    :: Int
-  , envelopeError :: Maybe String
-  , envelopeValue :: Value
+  { envelopeId     :: Int
+  , envelopeError  :: Maybe String
+  , envelopeResult :: Maybe Value
   } deriving (Show)
 
 instance FromJSON RpcEnvelope where
@@ -76,10 +75,11 @@ instance FromJSON RpcEnvelope where
     responseId <- obj .: "id"
     err        <- obj .:? "error"
     message    <- traverse describeError err
+    result     <- obj .:? "result"
     return RpcEnvelope
-      { envelopeId    = responseId
-      , envelopeError = message
-      , envelopeValue = Object obj
+      { envelopeId     = responseId
+      , envelopeError  = message
+      , envelopeResult = result
       }
     where
       describeError :: Object -> Parser String
@@ -98,9 +98,8 @@ instance FromJSON TextBlock where
 toolFailure :: Value -> Maybe String
 toolFailure = parseMaybe parseFailure
   where
-    parseFailure = withObject "ToolFailure" $ \obj -> do
-      result <- obj .: "result"
-      isErr  <- result .:? "isError" .!= False
+    parseFailure = withObject "ToolFailure" $ \result -> do
+      isErr <- result .:? "isError" .!= False
       if not isErr
         then fail "not a tool failure"
         else do
@@ -108,8 +107,9 @@ toolFailure = parseMaybe parseFailure
           return (unwords (map blockText blocks))
 
 -- | Pick the response answering the given request id out of a body, skipping
--- keep-alives and notifications interleaved in the stream. A server-level
--- error or a tool-level failure comes back as Left.
+-- keep-alives and notifications interleaved in the stream, and return its
+-- "result" member. A server-level error or a tool-level failure comes back
+-- as Left.
 rpcResult :: Int -> BL.ByteString -> Either String Value
 rpcResult reqId body =
   case [ env | Just env <- envelopes, envelopeId env == reqId ] of
@@ -118,9 +118,11 @@ rpcResult reqId body =
       case envelopeError env of
         Just message -> Left message
         Nothing ->
-          case toolFailure (envelopeValue env) of
-            Just message -> Left ("tool error: " ++ message)
-            Nothing      -> Right (envelopeValue env)
+          case envelopeResult env of
+            Nothing     -> Left "response carried neither a result nor an error"
+            Just result -> case toolFailure result of
+              Just message -> Left ("tool error: " ++ message)
+              Nothing      -> Right result
   where
     envelopes = map decode (sseEvents body) :: [Maybe RpcEnvelope]
 
@@ -225,8 +227,7 @@ openSession url = do
       Just version -> version
       Nothing      -> protocolVersion
 
-    parseVersion = withObject "initialize result" $ \obj -> do
-      result <- obj .: "result"
+    parseVersion = withObject "initialize result" $ \result ->
       result .:? "protocolVersion" .!= protocolVersion
 
 toolsList :: Session -> IO (Either String [ToolSchema])

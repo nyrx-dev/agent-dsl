@@ -1,9 +1,16 @@
 module AST where
 
+-- | One step of a path into a bound value: a field of an object, or a
+-- position in an array.
+data Selector
+  = Key String
+  | Index Int
+  deriving (Show, Eq)
+
 data Input =
-    Var String |
+    Var String [Selector] |
     Lit String
-    deriving (Show)
+    deriving (Show, Eq)
 
 data ServerDecl = ServerDecl {
     serverAlias :: String,

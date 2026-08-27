@@ -8,10 +8,10 @@ import Text.Megaparsec (errorBundlePretty, runParser)
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Map as Map
 
-import Data.Aeson (Value (..), decode, object, (.=))
+import Data.Aeson (Value (..), decode, object, toJSON, (.=))
 
 import AST
-import Interpreter (buildArgs, resolveInput)
+import Interpreter (buildArgs, isTruthy, resolveInput)
 import Parser (workflowParser)
 import Schema hiding (toolName)
 import qualified Schema
@@ -105,6 +105,16 @@ parserTests =
         , " step a = tool:docs.t(\"unterminated"
         , " still going\") -> r"
         ]))
+    )
+
+  , ( "parses a selector path on a binding reference"
+    , case parseWorkflow (demo
+        [ "workflow Demo:"
+        , " step a = tool:docs.t(answer.content[0].text) -> r"
+        ]) of
+        Right wf -> [stepInputs s | StepNode s <- steps wf]
+                      == [[Var "answer" [Key "content", Index 0, Key "text"]]]
+        Left _   -> False
     )
 
   , ( "parses a call with no arguments"
@@ -268,8 +278,7 @@ schemaTests =
     )
 
   , ( "skips keep-alives and notifications to find the matching response"
-    , rpcResult 2 (BL.pack noisyStream)
-        == Right (object ["id" .= (2 :: Int), "ok" .= True])
+    , rpcResult 2 (BL.pack noisyStream) == Right (object ["ok" .= True])
     )
 
   , ( "reports a JSON-RPC error rather than returning it as a result"
@@ -284,6 +293,10 @@ schemaTests =
 
   , ( "refuses a response answering a different request id"
     , isLeft (rpcResult 9 (BL.pack "data: {\"id\":1,\"result\":{}}"))
+    )
+
+  , ( "reports a response carrying neither a result nor an error"
+    , isLeft (rpcResult 1 (BL.pack "data: {\"id\":1}"))
     )
 
   , ( "reads required arguments off a tool schema"
@@ -301,7 +314,7 @@ noisyStream :: String
 noisyStream = concat
   [ ": ping\n\n"
   , "event: message\ndata: {\"method\":\"notifications/message\",\"params\":{}}\n\n"
-  , "event: message\ndata: {\"id\":2,\"ok\":true}\n\n"
+  , "event: message\ndata: {\"id\":2,\"result\":{\"ok\":true}}\n\n"
   ]
 
 toolErrorStream :: String
@@ -311,8 +324,8 @@ toolErrorStream =
 
 toolsListBody :: BL.ByteString
 toolsListBody = BL.pack
-  "{\"id\":1,\"result\":{\"tools\":[{\"name\":\"search\",\"inputSchema\":{\"required\":[\"query\"]}},\
-  \{\"name\":\"ping\",\"inputSchema\":{}}]}}"
+  "{\"tools\":[{\"name\":\"search\",\"inputSchema\":{\"required\":[\"query\"]}},\
+  \{\"name\":\"ping\",\"inputSchema\":{}}]}"
 
 
 -- Interpreter ----------------------------------------------------------------
@@ -320,15 +333,45 @@ toolsListBody = BL.pack
 interpreterTests :: [(String, Bool)]
 interpreterTests =
   [ ( "resolves a literal to a JSON string"
-    , resolveInput Map.empty (Lit "hi") == String "hi"
+    , resolveInput Map.empty (Lit "hi") == Right (String "hi")
     )
 
   , ( "resolves a bound variable to the value it holds"
-    , resolveInput (Map.fromList [("hits", Bool True)]) (Var "hits") == Bool True
+    , resolveInput boundCtx (Var "hits" []) == Right (Bool True)
+    )
+
+  , ( "follows a selector path through objects and arrays"
+    , resolveInput boundCtx (Var "answer" [Key "content", Index 0, Key "text"])
+        == Right (String "hello")
+    )
+
+  , ( "fails on a selector the bound value does not have"
+    , resolveInput boundCtx (Var "answer" [Key "missing"])
+        == Left "answer.missing is not there in the bound value"
+    )
+
+  , ( "fails on an array index past the end"
+    , isLeftE (resolveInput boundCtx (Var "answer" [Key "content", Index 4]))
     )
 
   , ( "names arguments after the schema's required parameters"
     , buildArgs ["query", "limit"] [String "react", String "10"]
         == object ["query" .= ("react" :: String), "limit" .= ("10" :: String)]
     )
+
+  , ( "treats null, false, zero and empty containers as false"
+    , not (any isTruthy [Null, Bool False, Number 0, String "", object [], toJSON ([] :: [Int])])
+    )
+
+  , ( "treats a non-empty value as true"
+    , all isTruthy [Bool True, Number 1, String "x", object ["a" .= (1 :: Int)]]
+    )
+  ]
+  where
+    isLeftE = either (const True) (const False)
+
+boundCtx :: Map.Map String Value
+boundCtx = Map.fromList
+  [ ("hits", Bool True)
+  , ("answer", object ["content" .= [object ["text" .= ("hello" :: String)]]])
   ]
