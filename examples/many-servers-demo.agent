@@ -1,0 +1,26 @@
+servers:
+ wiki = https://mcp.deepwiki.com/mcp
+ context7 = https://mcp.context7.com/mcp
+ gitmcp = https://gitmcp.io/docs
+ learn = https://learn.microsoft.com/api/mcp
+ cloudflare = https://docs.mcp.cloudflare.com/mcp
+ svelte = https://mcp.svelte.dev/mcp
+ chakra = https://mcp.chakra-ui.com/mcp
+
+workflow CrossEcosystemResearch:
+ step askReact = tool:wiki.ask_question("facebook/react", "Name the hook React 19 added for form state. Reply with only the hook name.") -> hook
+
+ if hook.isError:
+  step recover = tool:wiki.read_wiki_structure("facebook/react") -> reactFindings
+ else:
+  step reactSource = tool:gitmcp.search_generic_documentation("facebook", "react", hook.structuredContent.result) -> reactFindings
+
+  if hook.content[0].type == "text":
+   step namedLibrary = tool:context7.resolve-library-id("react hooks", "react") -> library
+  else:
+   step anyLibrary = tool:context7.resolve-library-id("react", "react") -> library
+
+ step dotnet = tool:learn.microsoft_code_sample_search("minimal api dependency injection") -> dotnetSamples
+ step edge = tool:cloudflare.search_cloudflare_documentation("durable objects state") -> edgeDocs
+ step svelteIndex = tool:svelte.list-sections() -> svelteSections
+ step chakraIndex = tool:chakra.list_components() -> chakraComponents
