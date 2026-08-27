@@ -9,6 +9,7 @@ data TypeError
   = ServerNotFound String String
   | ToolNotFound String String String
   | TooFewArgs String String Int Int
+  | TooManyArgs String String Int Int
   deriving (Show)
 
 findTool :: [Schema.ToolSchema] -> String -> Maybe Schema.ToolSchema
@@ -26,7 +27,9 @@ checkStep schemaMap step =
               provided = length (stepInputs step)
           in if provided < required
              then [TooFewArgs (stepName step) (toolName step) required provided]
-             else []
+             else if provided > required
+               then [TooManyArgs (stepName step) (toolName step) required provided]
+               else []
 
 checkNode :: Map.Map String [Schema.ToolSchema] -> Node -> [TypeError]
 checkNode schemaMap (StepNode step) = checkStep schemaMap step
