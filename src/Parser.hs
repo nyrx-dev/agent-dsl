@@ -16,9 +16,17 @@ identifier = do
 stringLiteral :: Parser String
 stringLiteral = do
   _ <- char '"'
-  content <- many (noneOf "\"")
+  content <- many stringChar
   _ <- char '"'
   return content
+  where
+    stringChar = (char '\\' >> escapedChar) <|> noneOf "\"\\\n\r"
+    escapedChar = choice
+      [ '"'  <$ char '"'
+      , '\\' <$ char '\\'
+      , '\n' <$ char 'n'
+      , '\t' <$ char 't'
+      ]
 
 spaceConsumer :: Parser ()
 spaceConsumer = space

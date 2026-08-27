@@ -89,7 +89,7 @@ servers:
 step <name> = tool:<alias>.<tool-name>(<args>) -> <binding>
 ```
 
-Arguments are either quoted string literals (`"like this"`) or bare identifiers referencing an earlier step's binding.
+Arguments are either quoted string literals (`"like this"`) or bare identifiers referencing an earlier step's binding. A binding must be defined by an earlier step; an unknown name is a type error, not a literal. Inside a string, `\"`, `\\`, `\n` and `\t` are escapes; a string may not span lines.
 
 **Branches** — conditionally run one of two step lists:
 
