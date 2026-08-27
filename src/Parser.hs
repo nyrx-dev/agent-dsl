@@ -38,7 +38,7 @@ symbol :: String -> Parser String
 symbol s = lexeme (string s)
 
 urlParser :: Parser String
-urlParser = lexeme (some (noneOf " \t\n"))
+urlParser = lexeme (some (noneOf " \t\r\n"))
 
 serverDeclParser :: Parser ServerDecl
 serverDeclParser = do
