@@ -65,6 +65,37 @@ sseEvents bs =
 decodeEvent :: FromJSON a => BL.ByteString -> Maybe a
 decodeEvent bs = listToMaybe (mapMaybe decode (sseEvents bs))
 
+-- | The "error" member of a JSON-RPC error response.
+newtype RpcError = RpcError { rpcErrorMessage :: String }
+  deriving (Show)
+
+instance FromJSON RpcError where
+  parseJSON = withObject "RpcError" $ \obj -> do
+    err <- obj .: "error"
+    msg <- err .:? "message" .!= "unknown error"
+    code <- err .:? "code" .!= (0 :: Int)
+    return (RpcError (msg ++ " (code " ++ show code ++ ")"))
+
+newtype TextBlock = TextBlock { blockText :: String }
+
+instance FromJSON TextBlock where
+  parseJSON = withObject "TextBlock" $ \obj -> TextBlock <$> obj .:? "text" .!= ""
+
+-- | A tools/call response the server flagged as a tool-level failure
+-- (result.isError), which is reported separately from JSON-RPC errors.
+newtype ToolFailure = ToolFailure { toolFailureText :: String }
+  deriving (Show)
+
+instance FromJSON ToolFailure where
+  parseJSON = withObject "ToolFailure" $ \obj -> do
+    result <- obj .: "result"
+    isErr  <- result .:? "isError" .!= False
+    if not isErr
+      then fail "not a tool failure"
+      else do
+        blocks <- result .:? "content" .!= []
+        return (ToolFailure (unwords (map blockText blocks)))
+
 -- | A JSON-RPC response, as opposed to a notification. Responses carry an
 -- "id"; notifications do not.
 newtype RpcResponse = RpcResponse { rpcValue :: Value }

@@ -74,7 +74,12 @@ fetchSchemas url = do
   resp <- Schema.callMcp url (Schema.toolsListRequest 1)
   case Schema.decodeEvent resp :: Maybe Schema.ToolsListResult of
     Nothing -> do
-      hPutStrLn stderr ("Failed to fetch or parse tool schemas from " ++ url)
+      case Schema.decodeEvent resp :: Maybe Schema.RpcError of
+        Just rpcErr ->
+          hPutStrLn stderr ("Server " ++ url ++ " rejected tools/list: "
+                            ++ Schema.rpcErrorMessage rpcErr)
+        Nothing ->
+          hPutStrLn stderr ("Failed to fetch or parse tool schemas from " ++ url)
       exitFailure
     Just result -> return (Schema.tools result)
 

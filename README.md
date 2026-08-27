@@ -114,7 +114,7 @@ This is a working proof of concept, not a production tool yet. Known gaps, hones
 
 - **Positional, not named, argument matching** — arguments are matched to a schema's required parameters by position, not by name. The `.agent` file's argument order must match the schema's declared order.
 - **Branch conditions are simplistic** — a condition is currently just a truthy/falsy check on a bound value, not a real comparison (`equals`, `greater than`, etc).
-- **Runtime errors crash rather than report cleanly** — the interpreter uses `error` for unexpected failures instead of the `Either`-based reporting the type-checker uses.
+- **Runtime errors abort the workflow** — the interpreter uses `error` to stop on a failing step instead of the `Either`-based reporting the type-checker uses.
 - **No authentication support yet** — no API keys, bearer tokens, or OAuth for MCP servers that require them.
 - **MCP-only** — no support yet for calling plain REST/API endpoints outside the MCP protocol.
 
