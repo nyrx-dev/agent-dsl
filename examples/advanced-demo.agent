@@ -1,0 +1,20 @@
+servers:
+ docs = https://mcp.context7.com/mcp
+ wiki = https://mcp.deepwiki.com/mcp
+
+workflow FrameworkResearch:
+ step resolveReact = tool:docs.resolve-library-id("react hooks", "react") -> reactLib
+ step resolveVue = tool:docs.resolve-library-id("composition api", "vue") -> vueLib
+
+ if reactLib:
+  step reactTopics = tool:wiki.read_wiki_structure("facebook/react") -> reactStructure
+  step reactHooks = tool:wiki.ask_question("facebook/react", "When does a \"stale closure\" bite in useEffect, and how do I avoid it?") -> reactAnswer
+
+  if vueLib:
+   step vueReactivity = tool:wiki.ask_question("vuejs/core", "How does the reactivity system track dependencies?") -> vueAnswer
+  else:
+   step vueTopics = tool:wiki.read_wiki_structure("vuejs/core") -> vueStructure
+ else:
+  step reactBasics = tool:wiki.ask_question("facebook/react", "What is React?") -> reactAnswer
+
+ step closing = tool:wiki.read_wiki_structure("facebook/react") -> wrapUp
