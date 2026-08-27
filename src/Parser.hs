@@ -10,7 +10,7 @@ type Parser = Parsec Void String
 identifier :: Parser String
 identifier = do
   first <- letterChar
-  rest  <- many (alphaNumChar <|> char '_')
+  rest  <- many (alphaNumChar <|> char '_' <|> char '-')
   return (first : rest)
 
 stringLiteral :: Parser String

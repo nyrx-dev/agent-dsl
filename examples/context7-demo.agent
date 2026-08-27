@@ -1,0 +1,2 @@
+workflow Context7Demo:
+ step resolve = tool:resolve-library-id(hooks, react) -> libId
