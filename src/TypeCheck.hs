@@ -2,6 +2,7 @@
 module TypeCheck where
 
 import AST
+import qualified Api
 import qualified Schema
 import Data.Aeson
 import qualified Data.Aeson.Key as Key
@@ -17,7 +18,16 @@ data TypeError
   | TooManyArgs String String Int Int
   | UnboundVar String String
   | BadPath String String String
+  | ApiNotFound String String
+  | UnknownMethod String String
+  | BodyNotAllowed String String
   deriving (Show)
+
+-- | What the checker knows about the world the workflow runs in.
+data Env = Env
+  { envSchemas :: Map.Map String [Schema.ToolSchema]
+  , envApis    :: [String]
+  }
 
 -- | What each name in scope is bound to: the shape of the result the step
 -- that binds it returns, where the server publishes enough to know it.
@@ -118,31 +128,37 @@ describeType t
 
 -- Checking -------------------------------------------------------------------
 
--- | Checks one step, and reports the shape of what it binds.
-checkStep :: Map.Map String [Schema.ToolSchema] -> Bindings -> Step
-          -> ([TypeError], Maybe Value)
-checkStep schemaMap bound step =
-  case Map.lookup (server step) schemaMap of
-    Nothing ->
-      (inputErrors ++ [ServerNotFound (stepName step) (server step)], Nothing)
-    Just schemas ->
-      case findTool schemas (toolName step) of
-        Nothing ->
-          ( inputErrors ++ [ToolNotFound (stepName step) (server step) (toolName step)]
-          , Nothing
-          )
-        Just schema ->
-          let required = length (Schema.requiredArgs schema)
-              provided = length (stepInputs step)
-              arity
-                | provided < required =
-                    [TooFewArgs (stepName step) (toolName step) required provided]
-                | provided > required =
-                    [TooManyArgs (stepName step) (toolName step) required provided]
-                | otherwise = []
-          in (inputErrors ++ arity, Just (resultSchema schema))
+-- | Checks one step, and reports the shape of what it binds. An API result
+-- has no schema to describe it, so it binds an unknown shape and paths into
+-- it are left to the runtime.
+checkStep :: Env -> Bindings -> Step -> ([TypeError], Maybe Value)
+checkStep env bound step = case stepCall step of
+  ApiCall alias method _ body ->
+    ( inputErrors
+        ++ [ApiNotFound (stepName step) alias | alias `notElem` envApis env]
+        ++ [UnknownMethod (stepName step) method | method `notElem` Api.methods]
+        ++ [ BodyNotAllowed (stepName step) method
+           | Just _ <- [body], method `elem` Api.methods, not (Api.takesBody method) ]
+    , Nothing
+    )
+  ToolCall alias tool args ->
+    case Map.lookup alias (envSchemas env) of
+      Nothing -> (inputErrors ++ [ServerNotFound (stepName step) alias], Nothing)
+      Just schemas ->
+        case findTool schemas tool of
+          Nothing -> (inputErrors ++ [ToolNotFound (stepName step) alias tool], Nothing)
+          Just schema ->
+            let required = length (Schema.requiredArgs schema)
+                provided = length args
+                arity
+                  | provided < required =
+                      [TooFewArgs (stepName step) tool required provided]
+                  | provided > required =
+                      [TooManyArgs (stepName step) tool required provided]
+                  | otherwise = []
+            in (inputErrors ++ arity, Just (resultSchema schema))
   where
-    inputErrors = concatMap checkInput (stepInputs step)
+    inputErrors = concatMap checkInput (callInputs (stepCall step))
 
     checkInput (Lit _) = []
     checkInput input@(Var name selectors) = case Map.lookup name bound of
@@ -158,12 +174,11 @@ conditionInputs (Compare _ left right) = [left, right]
 
 -- | Checks a node against the bindings in scope, returning its errors along
 -- with the bindings that are in scope after it.
-checkNode :: Map.Map String [Schema.ToolSchema] -> Bindings -> Node
-          -> ([TypeError], Bindings)
-checkNode schemaMap bound (StepNode step) =
-  let (errors, shape) = checkStep schemaMap bound step
+checkNode :: Env -> Bindings -> Node -> ([TypeError], Bindings)
+checkNode env bound (StepNode step) =
+  let (errors, shape) = checkStep env bound step
   in (errors, Map.insert (bindsTo step) shape bound)
-checkNode schemaMap bound (BranchNode branch) =
+checkNode env bound (BranchNode branch) =
   ( condErrors ++ trueErrors ++ falseErrors
   , Map.unionWith mergeShapes trueBound falseBound
   )
@@ -175,23 +190,26 @@ checkNode schemaMap bound (BranchNode branch) =
       | Var name _ <- conditionInputs (branchCondition branch)
       , not (Map.member name bound)
       ]
-    (trueErrors,  trueBound)  = checkNodes schemaMap bound (branchTrue branch)
-    (falseErrors, falseBound) = checkNodes schemaMap bound (branchFalse branch)
+    (trueErrors,  trueBound)  = checkNodes env bound (branchTrue branch)
+    (falseErrors, falseBound) = checkNodes env bound (branchFalse branch)
 
     -- A name bound to a different shape in each arm has no one shape after.
     mergeShapes left right
       | left == right = left
       | otherwise     = Nothing
 
-checkNodes :: Map.Map String [Schema.ToolSchema] -> Bindings -> [Node]
-           -> ([TypeError], Bindings)
+checkNodes :: Env -> Bindings -> [Node] -> ([TypeError], Bindings)
 checkNodes _ bound [] = ([], bound)
-checkNodes schemaMap bound (n : ns) =
-  let (errors, bound')      = checkNode schemaMap bound n
-      (restErrors, bound'') = checkNodes schemaMap bound' ns
+checkNodes env bound (n : ns) =
+  let (errors, bound')      = checkNode env bound n
+      (restErrors, bound'') = checkNodes env bound' ns
   in (errors ++ restErrors, bound'')
 
 typeCheck :: Map.Map String [Schema.ToolSchema] -> Workflow -> Either [TypeError] ()
 typeCheck schemaMap workflow =
-  let (errors, _) = checkNodes schemaMap Map.empty (steps workflow)
+  let env = Env
+        { envSchemas = schemaMap
+        , envApis    = map apiAlias (wfApis workflow)
+        }
+      (errors, _) = checkNodes env Map.empty (steps workflow)
   in if null errors then Right () else Left errors

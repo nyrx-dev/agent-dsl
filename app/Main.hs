@@ -11,7 +11,8 @@ import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.List (intercalate)
 import qualified Data.Map as Map
 
-import AST (workflowName, wfServers, serverAlias, serverUrl, ServerDecl)
+import AST (workflowName, wfServers, wfApis, serverAlias, serverUrl,
+            apiAlias, apiBaseUrl, ServerDecl)
 import Parser (workflowParser)
 import qualified Schema
 import TypeCheck (typeCheck)
@@ -40,17 +41,30 @@ runFile filePath = do
     Right workflow -> do
       putStrLn ("Parsed workflow: " ++ workflowName workflow)
 
-      if null (wfServers workflow)
+      if null (wfServers workflow) && null (wfApis workflow)
         then do
-          hPutStrLn stderr "Workflow declares no servers. Add a 'servers:' block."
+          hPutStrLn stderr
+            "Workflow declares nothing to call. Add a 'servers:' or 'apis:' block."
           exitFailure
         else do
-          case duplicateAliases (wfServers workflow) of
+          case duplicates (map serverAlias (wfServers workflow)) of
             []    -> return ()
             dupes -> die ("Duplicate server alias(es): " ++ intercalate ", " dupes)
+          case duplicates (map apiAlias (wfApis workflow)) of
+            []    -> return ()
+            dupes -> die ("Duplicate API alias(es): " ++ intercalate ", " dupes)
 
-          putStrLn "Fetching tool schemas..."
-          (sessions, schemaMap) <- fetchAllSchemas (wfServers workflow)
+          let apis = Map.fromList
+                [(apiAlias d, apiBaseUrl d) | d <- wfApis workflow]
+          mapM_ (\d -> putStrLn ("  " ++ apiAlias d ++ " -> " ++ apiBaseUrl d))
+                (wfApis workflow)
+
+          (sessions, schemaMap) <-
+            if null (wfServers workflow)
+              then return (Map.empty, Map.empty)
+              else do
+                putStrLn "Fetching tool schemas..."
+                fetchAllSchemas (wfServers workflow)
 
           case typeCheck schemaMap workflow of
             Left errors -> do
@@ -60,17 +74,17 @@ runFile filePath = do
 
             Right () -> do
               putStrLn "Type-check passed. Running workflow..."
-              finalCtx <- runWorkflow sessions schemaMap Map.empty workflow
+              finalCtx <- runWorkflow sessions apis schemaMap Map.empty workflow
               putStrLn "Workflow finished. Final context:"
               printContext finalCtx
 
 -- | Aliases declared more than once. Map.fromList would silently keep only
--- the last URL for each, leaving the earlier server unreachable.
-duplicateAliases :: [ServerDecl] -> [String]
-duplicateAliases decls =
+-- the last URL for each, leaving the earlier one unreachable.
+duplicates :: [String] -> [String]
+duplicates aliases =
   [ alias | (alias, count) <- Map.toList counts, count > (1 :: Int) ]
   where
-    counts = Map.fromListWith (+) [(serverAlias d, 1) | d <- decls]
+    counts = Map.fromListWith (+) [(alias, 1) | alias <- aliases]
 
 -- | Open a session against every declared server and fetch its tool schemas.
 fetchAllSchemas :: [ServerDecl]

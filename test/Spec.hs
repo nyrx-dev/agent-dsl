@@ -85,7 +85,8 @@ parserTests =
 
   , ( "accepts hyphens in tool names"
     , case parseWorkflow simpleSource of
-        Right wf -> [toolName s | StepNode s <- steps wf] == ["resolve-library-id"]
+        Right wf -> [tool | StepNode s <- steps wf, ToolCall _ tool _ <- [stepCall s]]
+                      == ["resolve-library-id"]
         Left _   -> False
     )
 
@@ -94,7 +95,7 @@ parserTests =
         [ "workflow Demo:"
         , " step a = tool:docs.t(\"say \\\"hi\\\" \\\\ ok\") -> r"
         ]) of
-        Right wf -> [l | StepNode s <- steps wf, Lit l <- stepInputs s]
+        Right wf -> [l | StepNode s <- steps wf, Lit l <- callInputs (stepCall s)]
                       == ["say \"hi\" \\ ok"]
         Left _   -> False
     )
@@ -112,14 +113,14 @@ parserTests =
         [ "workflow Demo:"
         , " step a = tool:docs.t(answer.content[0].text) -> r"
         ]) of
-        Right wf -> [stepInputs s | StepNode s <- steps wf]
+        Right wf -> [callInputs (stepCall s) | StepNode s <- steps wf]
                       == [[Var "answer" [Key "content", Index 0, Key "text"]]]
         Left _   -> False
     )
 
   , ( "parses a call with no arguments"
     , case parseWorkflow (demo ["workflow Demo:", " step a = tool:docs.t() -> r"]) of
-        Right wf -> [length (stepInputs s) | StepNode s <- steps wf] == [0]
+        Right wf -> [length (callInputs (stepCall s)) | StepNode s <- steps wf] == [0]
         Left _   -> False
     )
 
@@ -132,6 +133,45 @@ parserTests =
               && length (branchFalse b) == 1
           _ -> False
         Left _ -> False
+    )
+
+  , ( "parses an api step, joining its arguments into the path"
+    , case parseWorkflow (demo
+        [ "apis:"
+        , " gh = https://api.github.com"
+        , ""
+        , "workflow Demo:"
+        , " step a = api:gh.get(\"/repos/\", owner, \"/react\") -> r"
+        ]) of
+        Right wf -> [stepCall s | StepNode s <- steps wf]
+          == [ApiCall "gh" "get"
+                [Lit "/repos/", Var "owner" [], Lit "/react"] Nothing]
+        Left _   -> False
+    )
+
+  , ( "parses a request body introduced by with"
+    , case parseWorkflow (demo
+        [ "workflow Demo:"
+        , " step a = api:gh.post(\"/x\") with \"{}\" -> r"
+        ]) of
+        Right wf -> [stepCall s | StepNode s <- steps wf]
+          == [ApiCall "gh" "post" [Lit "/x"] (Just (Lit "{}"))]
+        Left _   -> False
+    )
+
+  , ( "accepts servers and apis blocks in either order"
+    , case parseWorkflow (demo
+        [ "apis:"
+        , " gh = https://api.github.com"
+        , "servers:"
+        , " docs = https://example.test/mcp"
+        , ""
+        , "workflow Demo:"
+        , " step a = api:gh.get(\"/x\") -> r"
+        ]) of
+        Right wf -> map apiAlias (wfApis wf) == ["gh"]
+                 && map serverAlias (wfServers wf) == ["docs"]
+        Left _   -> False
     )
 
   , ( "parses a bare condition as a truthiness test"
@@ -211,6 +251,16 @@ testSchemas = Map.fromList
                      ])
                  }
              ])
+  ]
+
+-- | A workflow with one API declared and a single step making @call@.
+apiWorkflow :: String -> String
+apiWorkflow call = unlines
+  [ "apis:"
+  , " gh = https://api.github.com"
+  , ""
+  , "workflow Demo:"
+  , " step a = " ++ call ++ " -> r"
   ]
 
 -- | A workflow whose first step binds @source@, then feeds @path@ to a
@@ -326,6 +376,41 @@ typeCheckTests =
         , " step a = tool:docs.search(\"q\", \"10\") -> hits"
         , " if hits.contnt:"
         , " else:"
+        ]) == []
+    )
+
+  , ( "accepts a declared api called with a known method"
+    , errorsIn (apiWorkflow "api:gh.get(\"/repos/facebook/react\")") == []
+    )
+
+  , ( "reports an api alias that is not declared"
+    , errorsIn (apiWorkflow "api:nope.get(\"/x\")") == ["ApiNotFound"]
+    )
+
+  , ( "reports a method that is not an HTTP method"
+    , errorsIn (apiWorkflow "api:gh.fetch(\"/x\")") == ["UnknownMethod"]
+    )
+
+  , ( "reports a body on a method that does not take one"
+    , errorsIn (apiWorkflow "api:gh.get(\"/x\") with \"{}\"") == ["BodyNotAllowed"]
+    )
+
+  , ( "accepts a body on post"
+    , errorsIn (apiWorkflow "api:gh.post(\"/x\") with \"{}\"") == []
+    )
+
+  , ( "checks binding references inside an api path"
+    , errorsIn (apiWorkflow "api:gh.get(\"/x/\", nope)") == ["UnboundVar"]
+    )
+
+  , ( "leaves paths into an api result unchecked, having no schema for it"
+    , errorsIn (unlines
+        [ "apis:"
+        , " gh = https://api.github.com"
+        , ""
+        , "workflow Demo:"
+        , " step a = api:gh.get(\"/x\") -> out"
+        , " step b = tool:docs.search(out.anything.at.all, \"10\") -> more"
         ]) == []
     )
 

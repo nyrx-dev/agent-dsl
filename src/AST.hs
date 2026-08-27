@@ -17,13 +17,29 @@ data ServerDecl = ServerDecl {
     serverUrl :: String
 } deriving (Show)
 
+data ApiDecl = ApiDecl {
+    apiAlias :: String,
+    apiBaseUrl :: String
+} deriving (Show)
+
+-- | What a step calls: a tool on an MCP server, or a plain HTTP endpoint.
+-- An API call builds its path by joining its arguments onto the base URL,
+-- and may carry a request body.
+data Call
+  = ToolCall String String [Input]
+  | ApiCall String String [Input] (Maybe Input)
+  deriving (Show, Eq)
+
 data Step = Step {
     stepName :: String,
-    server :: String,
-    toolName :: String,
-    stepInputs :: [Input],
+    stepCall :: Call,
     bindsTo :: String
 } deriving (Show)
+
+-- | The inputs a call reads, wherever they appear in it.
+callInputs :: Call -> [Input]
+callInputs (ToolCall _ _ args)          = args
+callInputs (ApiCall _ _ parts body)     = parts ++ maybe [] pure body
 
 data Node  = StepNode Step | BranchNode Branch
     deriving (Show)
@@ -48,6 +64,7 @@ data Branch = Branch {
 data Workflow = Workflow {
     workflowName :: String,
     wfServers :: [ServerDecl],
+    wfApis :: [ApiDecl],
     steps :: [Node]
 } deriving (Show)
 

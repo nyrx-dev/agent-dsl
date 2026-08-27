@@ -61,6 +61,19 @@ serversBlockParser = do
   _ <- symbol ":"
   many (try serverDeclParser)
 
+apiDeclParser :: Parser ApiDecl
+apiDeclParser = do
+  aliasName <- lexeme identifier
+  _ <- symbol "="
+  url <- urlParser
+  return ApiDecl { apiAlias = aliasName, apiBaseUrl = url }
+
+apisBlockParser :: Parser [ApiDecl]
+apisBlockParser = do
+  keyword "apis"
+  _ <- symbol ":"
+  many (try apiDeclParser)
+
 selectorParser :: Parser Selector
 selectorParser =
       (Key <$> (char '.' *> identifier))
@@ -77,28 +90,45 @@ varParser = lexeme (Var <$> identifier <*> many selectorParser)
 argParser :: Parser Input
 argParser = (Lit <$> lexeme stringLiteral) <|> varParser
 
-stepParser :: Parser Step
-stepParser = do
-  keyword "step"
-  name <- lexeme identifier
-  _ <- symbol "="
+toolCallParser :: Parser Call
+toolCallParser = do
   keyword "tool"
   _ <- symbol ":"
   serverRef <- lexeme identifier
   _ <- symbol "."
   tool <- lexeme identifier
+  args <- parenthesised
+  return (ToolCall serverRef tool args)
+
+-- | @api:github.get("/repos/", owner, "/react")@, whose arguments join onto
+-- the base URL to make the path, optionally followed by @with <body>@.
+apiCallParser :: Parser Call
+apiCallParser = do
+  keyword "api"
+  _ <- symbol ":"
+  apiRef <- lexeme identifier
+  _ <- symbol "."
+  method <- lexeme identifier
+  parts <- parenthesised
+  body <- option Nothing (Just <$> (keyword "with" *> argParser))
+  return (ApiCall apiRef method parts body)
+
+parenthesised :: Parser [Input]
+parenthesised = do
   _ <- symbol "("
   args <- sepBy argParser (symbol ",")
   _ <- symbol ")"
+  return args
+
+stepParser :: Parser Step
+stepParser = do
+  keyword "step"
+  name <- lexeme identifier
+  _ <- symbol "="
+  call <- toolCallParser <|> apiCallParser
   _ <- symbol "->"
   bind <- lexeme identifier
-  return Step
-    { stepName = name
-    , server = serverRef
-    , toolName = tool
-    , stepInputs = args
-    , bindsTo = bind
-    }
+  return Step { stepName = name, stepCall = call, bindsTo = bind }
 
 currentColumn :: Parser Pos
 currentColumn = sourceColumn <$> getSourcePos
@@ -143,13 +173,26 @@ branchParser = do
 nodeParser :: Parser Node
 nodeParser = (StepNode <$> stepParser) <|> (BranchNode <$> branchParser)
 
+-- | The declaration blocks a workflow can open with, in either order.
+data Declarations = DeclaredServers [ServerDecl] | DeclaredApis [ApiDecl]
+
+declarationsParser :: Parser Declarations
+declarationsParser =
+      (DeclaredServers <$> try serversBlockParser)
+  <|> (DeclaredApis    <$> try apisBlockParser)
+
 workflowParser :: Parser Workflow
 workflowParser = do
   spaceConsumer
-  serverDecls <- option [] (try serversBlockParser)
+  blocks <- many declarationsParser
   keyword "workflow"
   name <- lexeme identifier
   _ <- symbol ":"
   nodes <- many nodeParser
   eof
-  return Workflow { workflowName = name, wfServers = serverDecls, steps = nodes }
+  return Workflow
+    { workflowName = name
+    , wfServers    = concat [decls | DeclaredServers decls <- blocks]
+    , wfApis       = concat [decls | DeclaredApis decls <- blocks]
+    , steps        = nodes
+    }

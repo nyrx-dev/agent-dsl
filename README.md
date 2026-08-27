@@ -2,7 +2,7 @@
 
 A small, statically-typed language for defining and running AI agent workflows against [MCP](https://modelcontextprotocol.io) servers.
 
-`.agent` files describe a sequence of tool calls — across one or more MCP servers — as plain text. Before anything runs, every tool call is validated against the target server's **real, live schema**. A broken or hallucinated tool reference is caught immediately, with a clear error, instead of failing mid-workflow after real network calls have already fired.
+`.agent` files describe a sequence of calls — across one or more MCP servers, plain HTTP APIs, or both — as plain text. Before anything runs, every tool call is validated against the target server's **real, live schema**. A broken or hallucinated tool reference is caught immediately, with a clear error, instead of failing mid-workflow after real network calls have already fired.
 
 ```
 servers:
@@ -83,6 +83,7 @@ The two example files in `examples/` are a good starting point:
 - `examples/linkedin-demo.agent` — a real, working multi-server workflow (Context7 + DeepWiki)
 - `examples/advanced-demo.agent` — exercises the whole syntax: two servers, four tools, one step's answer fed into the next through a selector path, a truthiness branch and a nested comparison branch, and a step that picks up after the branch closes
 - `examples/many-servers-demo.agent` — seven MCP servers in one workflow: DeepWiki, Context7, GitMCP, Microsoft Learn, Cloudflare Docs, Svelte and Chakra UI
+- `examples/api-demo.agent` — mixes plain HTTP endpoints (GitHub, Hacker News, npm) with an MCP server, and splices a Hacker News story id into a URL path
 - `examples/broken-demo.agent` — deliberately references a tool that doesn't exist, to demonstrate the type-checker catching it before execution
 
 ## Syntax
@@ -93,6 +94,15 @@ The two example files in `examples/` are a good starting point:
 servers:
  <alias> = <url>
 ```
+
+**APIs** — declare plain HTTP endpoints the same way, by base URL:
+
+```
+apis:
+ <alias> = <base-url>
+```
+
+Both blocks are optional and may appear in either order, so a workflow can be all MCP, all HTTP, or a mix of the two.
 
 **Steps** — call a tool on a declared server, bind its result to a name:
 
@@ -120,6 +130,23 @@ BadPath "deep" "answer.structuredContent.nope" "has no field \"nope\"; it has \"
 ```
 
 Where a server publishes no output schema, the shape of `structuredContent` is unknown and paths into it fall back to being caught at runtime. Paths in a *branch condition* are not checked, since a condition reads a missing path as null by design.
+
+**API steps** — call an endpoint. The arguments join onto the base URL to form the path, so a value from an earlier step can be spliced into it:
+
+```
+step <name> = api:<alias>.<method>(<path-parts>) -> <binding>
+step <name> = api:<alias>.<method>(<path-parts>) with <body> -> <binding>
+```
+
+```
+step top = api:hn.get("/v0/topstories.json") -> stories
+step story = api:hn.get("/v0/item/", stories[0], ".json") -> story
+step created = api:github.post("/repos/o/r/issues") with "{\"title\":\"hi\"}" -> issue
+```
+
+Methods are `get`, `post`, `put`, `patch`, `delete` and `head`; only `post`, `put` and `patch` accept a `with` body. A JSON response is bound as parsed JSON, anything else as a string, and a non-2xx status fails the step the way an MCP error does.
+
+The type-checker still catches an undeclared alias, an unknown method, a body on a method that takes none, and a reference to a binding that does not exist — but an HTTP endpoint publishes no schema, so argument counts and selector paths into an API result cannot be checked ahead of time the way MCP tool calls are.
 
 **Branches** — conditionally run one of two step lists:
 
@@ -159,13 +186,12 @@ This is a working proof of concept, not a production tool yet. Known gaps, hones
 - **Branch conditions cover equality only** — `==` and `!=` against a JSON value, plus a truthiness test. No ordering (`greater than`), no boolean operators (`and`, `or`, `not`).
 - **Runtime errors abort the workflow** — the interpreter uses `error` to stop on a failing step instead of the `Either`-based reporting the type-checker uses.
 - **No authentication support yet** — no API keys, bearer tokens, or OAuth for MCP servers that require them.
-- **MCP-only** — no support yet for calling plain REST/API endpoints outside the MCP protocol.
+- **No auth on API steps** — no headers, API keys or bearer tokens yet, so only endpoints that are open to anonymous callers work.
 
 ## Roadmap
 
 - API-key auth for servers (`auth: env("...")`)
 - A keyword letting an AI agent supply its own content into an otherwise fixed, validated workflow
-- Generic (non-MCP) API call steps
 - OAuth support for MCP servers that require it
 - `agent-dsl` itself exposed as an MCP server (`validate_workflow` / `run_workflow` tools), so any MCP-aware AI agent can safely execute a structurally-validated plan without ever calling a broken tool
 

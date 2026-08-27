@@ -62,7 +62,7 @@ executable agent-dsl
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules:    AST, Parser, Schema, TypeCheck, Interpreter
+    other-modules:    AST, Api, Parser, Schema, TypeCheck, Interpreter
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -88,7 +88,7 @@ test-suite agent-dsl-test
     import:           warnings
     type:             exitcode-stdio-1.0
     main-is:          Spec.hs
-    other-modules:    AST, Parser, Schema, TypeCheck, Interpreter
+    other-modules:    AST, Api, Parser, Schema, TypeCheck, Interpreter
     hs-source-dirs:   test, src
     build-depends:    base ^>=4.18.3.0,
                        megaparsec,

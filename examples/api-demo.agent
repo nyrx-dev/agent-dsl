@@ -1,0 +1,18 @@
+servers:
+ wiki = https://mcp.deepwiki.com/mcp
+
+apis:
+ github = https://api.github.com
+ hn = https://hacker-news.firebaseio.com
+ npm = https://registry.npmjs.org
+
+workflow ReleaseWatch:
+ step topIds = api:hn.get("/v0/topstories.json") -> stories
+ step topStory = api:hn.get("/v0/item/", stories[0], ".json") -> story
+ step release = api:github.get("/repos/facebook/react/releases/latest") -> latest
+ step published = api:npm.get("/react/latest") -> onNpm
+
+ if latest.draft:
+  step unreleased = tool:wiki.read_wiki_structure("facebook/react") -> notes
+ else:
+  step notes = tool:wiki.ask_question("facebook/react", latest.name) -> notes
