@@ -75,7 +75,8 @@ executable agent-dsl
                        http-conduit,
                        text,
                        bytestring,
-                       aeson-pretty
+                       aeson-pretty,
+                       async
 
     -- Directories containing source files.
     hs-source-dirs:   app, src

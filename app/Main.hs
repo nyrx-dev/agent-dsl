@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Concurrent.Async (mapConcurrently)
 import System.Environment (getArgs)
 import System.Exit (die, exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -75,13 +76,15 @@ duplicateAliases decls =
 fetchAllSchemas :: [ServerDecl]
                 -> IO (Map.Map String Schema.Session, Map.Map String [Schema.ToolSchema])
 fetchAllSchemas decls = do
-  entries <- mapM openOne decls
+  mapM_ (\decl -> putStrLn ("  " ++ serverAlias decl ++ " -> " ++ serverUrl decl)) decls
+  -- Servers are independent, and the handshake is three round trips each, so
+  -- opening them one after another is the slowest part of most runs.
+  entries <- mapConcurrently openOne decls
   return ( Map.fromList [(alias, session) | (alias, session, _) <- entries]
          , Map.fromList [(alias, schemas) | (alias, _, schemas) <- entries]
          )
   where
     openOne decl = do
-      putStrLn ("  " ++ serverAlias decl ++ " -> " ++ serverUrl decl)
       opened <- Schema.openSession (serverUrl decl)
       case opened of
         Left err -> die ("Could not initialize " ++ serverUrl decl ++ ": " ++ err)
