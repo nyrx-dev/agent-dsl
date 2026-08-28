@@ -1,0 +1,12 @@
+apis:
+ bearer = https://httpbin.org bearer env("DEMO_TOKEN")
+ keyed = https://httpbin.org header "X-API-Key" env("DEMO_KEY")
+
+workflow AuthCheck:
+ step authorized = api:bearer.get("/bearer") -> viaBearer
+ step echoed = api:keyed.get("/headers") -> viaHeader
+
+ if viaBearer.authenticated:
+  step confirmed = api:bearer.get("/status/200") -> ok
+ else:
+  step rejected = api:bearer.get("/status/401") -> denied

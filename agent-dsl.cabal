@@ -20,7 +20,7 @@ name:               agent-dsl
 -- PVP summary:     +-+------- breaking API changes
 --                  | | +----- non-breaking API additions
 --                  | | | +--- code changes with no API change
-version:            0.2.0.0
+version:            0.3.0.0
 
 -- A short (one-line) description of the package.
 -- synopsis:
@@ -62,7 +62,7 @@ executable agent-dsl
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules:    AST, Api, Parser, Schema, TypeCheck, Interpreter
+    other-modules:    AST, Api, Auth, Parser, Schema, TypeCheck, Interpreter
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -73,6 +73,7 @@ executable agent-dsl
                        containers,
                        aeson,
                        http-conduit,
+                       http-types,
                        text,
                        bytestring,
                        aeson-pretty,
@@ -88,13 +89,14 @@ test-suite agent-dsl-test
     import:           warnings
     type:             exitcode-stdio-1.0
     main-is:          Spec.hs
-    other-modules:    AST, Api, Parser, Schema, TypeCheck, Interpreter
+    other-modules:    AST, Api, Auth, Parser, Schema, TypeCheck, Interpreter
     hs-source-dirs:   test, src
     build-depends:    base ^>=4.18.3.0,
                        megaparsec,
                        containers,
                        aeson,
                        http-conduit,
+                       http-types,
                        text,
                        bytestring
     default-language: Haskell2010

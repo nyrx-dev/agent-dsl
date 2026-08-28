@@ -2,6 +2,7 @@
 -- | Plain HTTP calls, for endpoints that speak no MCP.
 module Api where
 
+import Auth (AuthHeaders)
 import Data.Aeson
 import Data.Char (toUpper)
 import Data.Maybe (fromMaybe)
@@ -20,10 +21,12 @@ takesBody method = method `elem` ["post", "put", "patch"]
 -- | Call an endpoint. A non-2xx status fails the step, the way a JSON-RPC
 -- error does. A JSON response body is bound as parsed JSON; anything else,
 -- such as plain text or HTML, is bound as a string.
-callEndpoint :: String -> String -> String -> Maybe String -> IO (Either String Value)
-callEndpoint baseUrl method path body = do
+callEndpoint :: String -> AuthHeaders -> String -> String -> Maybe String
+             -> IO (Either String Value)
+callEndpoint baseUrl auth method path body = do
   request0 <- parseRequest (baseUrl ++ path)
-  let withBody = case body of
+  let withAuth = foldr (\(name, value) f -> setRequestHeader name [value] . f) id auth
+      withBody = case body of
         Nothing  -> id
         Just raw -> setRequestHeader "Content-Type" ["application/json"]
                   . setRequestBodyLBS (BL.pack raw)
@@ -32,6 +35,7 @@ callEndpoint baseUrl method path body = do
               -- Some APIs, GitHub's among them, refuse a request that does
               -- not name its client.
               $ setRequestHeader "User-Agent" ["agent-dsl"]
+              $ withAuth
               $ withBody
               $ request0
   response <- httpLBS request

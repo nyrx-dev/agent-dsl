@@ -12,14 +12,28 @@ data Input =
     Lit String
     deriving (Show, Eq)
 
+-- | Where a credential comes from. Only the environment, so that a .agent
+-- file never carries a secret of its own.
+newtype Secret = FromEnv String
+    deriving (Show, Eq)
+
+-- | How to present a credential to a server.
+data Auth
+  = NoAuth
+  | BearerAuth Secret
+  | HeaderAuth String Secret
+  deriving (Show, Eq)
+
 data ServerDecl = ServerDecl {
     serverAlias :: String,
-    serverUrl :: String
+    serverUrl :: String,
+    serverAuth :: Auth
 } deriving (Show)
 
 data ApiDecl = ApiDecl {
     apiAlias :: String,
-    apiBaseUrl :: String
+    apiBaseUrl :: String,
+    apiAuth :: Auth
 } deriving (Show)
 
 -- | What a step calls: a tool on an MCP server, or a plain HTTP endpoint.

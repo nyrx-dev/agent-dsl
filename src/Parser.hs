@@ -48,12 +48,37 @@ symbol s = lexeme (string s)
 urlParser :: Parser String
 urlParser = lexeme (some (noneOf " \t\r\n"))
 
+-- | @env("NAME")@. A credential is only ever named, never written out, so
+-- that a workflow file can be committed as it stands.
+secretParser :: Parser Secret
+secretParser = do
+  keyword "env"
+  _ <- symbol "("
+  name <- lexeme stringLiteral
+  _ <- symbol ")"
+  return (FromEnv name)
+
+-- | An optional credential clause after a declaration's URL:
+-- @bearer env("TOKEN")@ or @header "X-API-Key" env("KEY")@.
+authParser :: Parser Auth
+authParser = option NoAuth (try bearer <|> try custom)
+  where
+    bearer = do
+      keyword "bearer"
+      BearerAuth <$> secretParser
+    custom = do
+      keyword "header"
+      name <- lexeme stringLiteral
+      HeaderAuth name <$> secretParser
+
 serverDeclParser :: Parser ServerDecl
 serverDeclParser = do
   aliasName <- lexeme identifier
   _ <- symbol "="
   url <- urlParser
-  return ServerDecl { serverAlias = aliasName, serverUrl = url }
+  auth <- authParser
+  return ServerDecl
+    { serverAlias = aliasName, serverUrl = url, serverAuth = auth }
 
 serversBlockParser :: Parser [ServerDecl]
 serversBlockParser = do
@@ -66,7 +91,9 @@ apiDeclParser = do
   aliasName <- lexeme identifier
   _ <- symbol "="
   url <- urlParser
-  return ApiDecl { apiAlias = aliasName, apiBaseUrl = url }
+  auth <- authParser
+  return ApiDecl
+    { apiAlias = aliasName, apiBaseUrl = url, apiAuth = auth }
 
 apisBlockParser :: Parser [ApiDecl]
 apisBlockParser = do

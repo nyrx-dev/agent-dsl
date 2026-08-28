@@ -11,8 +11,10 @@ import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.List (intercalate)
 import qualified Data.Map as Map
 
-import AST (workflowName, wfServers, wfApis, serverAlias, serverUrl,
-            apiAlias, apiBaseUrl, ServerDecl)
+import qualified AST
+import AST (workflowName, wfServers, wfApis, serverAlias, serverUrl, serverAuth,
+            apiAlias, apiBaseUrl, apiAuth, ServerDecl)
+import qualified Auth
 import Parser (workflowParser)
 import qualified Schema
 import TypeCheck (typeCheck)
@@ -54,8 +56,19 @@ runFile filePath = do
             []    -> return ()
             dupes -> die ("Duplicate API alias(es): " ++ intercalate ", " dupes)
 
+          -- Credentials are read before anything is contacted, so a missing
+          -- one fails immediately rather than as a 401 several steps in.
+          serverHeaders <- mapM
+            (\d -> resolveOrDie ("Server " ++ serverAlias d) (serverAuth d))
+            (wfServers workflow)
+          apiHeaders <- mapM
+            (\d -> resolveOrDie ("API " ++ apiAlias d) (apiAuth d))
+            (wfApis workflow)
+
           let apis = Map.fromList
-                [(apiAlias d, apiBaseUrl d) | d <- wfApis workflow]
+                [ (apiAlias d, (apiBaseUrl d, headers))
+                | (d, headers) <- zip (wfApis workflow) apiHeaders
+                ]
           mapM_ (\d -> putStrLn ("  " ++ apiAlias d ++ " -> " ++ apiBaseUrl d))
                 (wfApis workflow)
 
@@ -64,7 +77,7 @@ runFile filePath = do
               then return (Map.empty, Map.empty)
               else do
                 putStrLn "Fetching tool schemas..."
-                fetchAllSchemas (wfServers workflow)
+                fetchAllSchemas (zip (wfServers workflow) serverHeaders)
 
           case typeCheck schemaMap workflow of
             Left errors -> do
@@ -86,11 +99,16 @@ duplicates aliases =
   where
     counts = Map.fromListWith (+) [(alias, 1) | alias <- aliases]
 
+resolveOrDie :: String -> AST.Auth -> IO Auth.AuthHeaders
+resolveOrDie label auth = do
+  resolved <- Auth.resolveAuth label auth
+  either die return resolved
+
 -- | Open a session against every declared server and fetch its tool schemas.
-fetchAllSchemas :: [ServerDecl]
+fetchAllSchemas :: [(ServerDecl, Auth.AuthHeaders)]
                 -> IO (Map.Map String Schema.Session, Map.Map String [Schema.ToolSchema])
 fetchAllSchemas decls = do
-  mapM_ (\decl -> putStrLn ("  " ++ serverAlias decl ++ " -> " ++ serverUrl decl)) decls
+  mapM_ (\(decl, _) -> putStrLn ("  " ++ serverAlias decl ++ " -> " ++ serverUrl decl)) decls
   -- Servers are independent, and the handshake is three round trips each, so
   -- opening them one after another is the slowest part of most runs.
   entries <- mapConcurrently openOne decls
@@ -98,8 +116,8 @@ fetchAllSchemas decls = do
          , Map.fromList [(alias, schemas) | (alias, _, schemas) <- entries]
          )
   where
-    openOne decl = do
-      opened <- Schema.openSession (serverUrl decl)
+    openOne (decl, headers) = do
+      opened <- Schema.openSession (serverUrl decl) headers
       case opened of
         Left err -> die ("Could not initialize " ++ serverUrl decl ++ ": " ++ err)
         Right session -> do

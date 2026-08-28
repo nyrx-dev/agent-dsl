@@ -11,7 +11,10 @@ import qualified Data.Map as Map
 import Data.Aeson (Value (..), decode, object, toJSON, (.=))
 
 import AST
+import Auth (resolveAuth)
+import Data.List (isInfixOf)
 import Interpreter (buildArgs, evalCondition, isTruthy, resolveInput)
+import System.Environment (setEnv, unsetEnv)
 import Parser (workflowParser)
 import Schema hiding (toolName)
 import qualified Schema
@@ -40,6 +43,10 @@ main = do
 
   putStrLn "Interpreter"
   mapM_ (uncurry it) interpreterTests
+
+  putStrLn "Auth"
+  authResults <- authTests
+  mapM_ (uncurry it) authResults
 
   count <- readIORef failures
   putStrLn (show count ++ " failing")
@@ -133,6 +140,34 @@ parserTests =
               && length (branchFalse b) == 1
           _ -> False
         Left _ -> False
+    )
+
+  , ( "parses a bearer credential on a server declaration"
+    , case parseWorkflow (demo
+        [ "servers:"
+        , " s = https://example.test/mcp bearer env(\"TOK\")"
+        , ""
+        , "workflow Demo:"
+        ]) of
+        Right wf -> map serverAuth (wfServers wf) == [BearerAuth (FromEnv "TOK")]
+        Left _   -> False
+    )
+
+  , ( "parses a named header credential on an api declaration"
+    , case parseWorkflow (demo
+        [ "apis:"
+        , " a = https://example.test header \"X-API-Key\" env(\"KEY\")"
+        , ""
+        , "workflow Demo:"
+        ]) of
+        Right wf -> map apiAuth (wfApis wf) == [HeaderAuth "X-API-Key" (FromEnv "KEY")]
+        Left _   -> False
+    )
+
+  , ( "a declaration with no credential clause carries none"
+    , case parseWorkflow simpleSource of
+        Right wf -> map serverAuth (wfServers wf) == [NoAuth]
+        Left _   -> False
     )
 
   , ( "parses an api step, joining its arguments into the path"
@@ -570,3 +605,44 @@ boundCtx = Map.fromList
       , "isError" .= False
       ])
   ]
+
+
+-- Auth -----------------------------------------------------------------------
+
+authTests :: IO [(String, Bool)]
+authTests = do
+  setEnv   "AGENT_DSL_TEST_TOKEN" "sekret"
+  setEnv   "AGENT_DSL_TEST_EMPTY" ""
+  unsetEnv "AGENT_DSL_TEST_ABSENT"
+
+  bearer  <- resolveAuth "API x" (BearerAuth (FromEnv "AGENT_DSL_TEST_TOKEN"))
+  named   <- resolveAuth "API x" (HeaderAuth "X-API-Key" (FromEnv "AGENT_DSL_TEST_TOKEN"))
+  none    <- resolveAuth "API x" NoAuth
+  absent  <- resolveAuth "API x" (BearerAuth (FromEnv "AGENT_DSL_TEST_ABSENT"))
+  emptied <- resolveAuth "API x" (BearerAuth (FromEnv "AGENT_DSL_TEST_EMPTY"))
+
+  return
+    [ ( "a bearer secret becomes an Authorization header"
+      , bearer == Right [("Authorization", "Bearer sekret")]
+      )
+    , ( "a named header carries the secret as its value"
+      , named == Right [("X-API-Key", "sekret")]
+      )
+    , ( "a declaration without a credential contributes no headers"
+      , none == Right []
+      )
+    , ( "an unset variable is reported by name"
+      , absent == Left "API x: environment variable AGENT_DSL_TEST_ABSENT is not set"
+      )
+      -- setEnv removes a variable rather than setting it empty, so this
+      -- only pins down that an empty one is refused and named. The wording
+      -- of the empty case is covered by running against a real shell.
+    , ( "a variable with no usable value is refused and named"
+      , case emptied of
+          Left message -> "AGENT_DSL_TEST_EMPTY" `isInfixOf` message
+          Right _      -> False
+      )
+    , ( "a failure never quotes the secret itself"
+      , not (any ("sekret" `isInfixOf`) [show absent, show emptied])
+      )
+    ]

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Schema where
 
+import Auth (AuthHeaders)
 import Data.Aeson
 import Data.Aeson.Types (Parser, parseMaybe)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
@@ -147,6 +148,7 @@ data Session = Session
   { sessionUrl      :: String
   , sessionId       :: Maybe BS.ByteString
   , sessionProtocol :: Maybe BS.ByteString
+  , sessionAuth     :: AuthHeaders
   , sessionNextId   :: IORef Int
   }
 
@@ -157,11 +159,14 @@ postMcp :: Session -> Value -> IO (Response BL.ByteString)
 postMcp session body = do
   req0 <- parseRequest (sessionUrl session)
   let withHeader name = maybe id (\v -> setRequestHeader name [v])
+      withAuth = foldr (\(name, value) f -> setRequestHeader name [value] . f)
+                       id (sessionAuth session)
       request = setRequestMethod "POST"
               $ setRequestHeader "Content-Type" ["application/json"]
               $ setRequestHeader "Accept" ["application/json, text/event-stream"]
               $ withHeader "Mcp-Session-Id" (sessionId session)
               $ withHeader "MCP-Protocol-Version" (sessionProtocol session)
+              $ withAuth
               $ setRequestBodyJSON body
               $ req0
   httpLBS request
@@ -210,18 +215,22 @@ toolsCallRequest reqId tool arguments = object
 -- | Run the MCP initialize handshake, which servers may require before they
 -- answer anything else: initialize, adopt the session id and protocol version
 -- the server replies with, then confirm with notifications/initialized.
-openSession :: String -> IO (Either String Session)
-openSession url = do
+openSession :: String -> AuthHeaders -> IO (Either String Session)
+openSession url auth = do
   counter <- newIORef 1
   let handshake = Session
         { sessionUrl      = url
         , sessionId       = Nothing
         , sessionProtocol = Nothing
+        , sessionAuth     = auth
         , sessionNextId   = counter
         }
   reqId    <- nextRequestId handshake
   response <- postMcp handshake (initializeRequest reqId)
-  case rpcResult reqId (getResponseBody response) of
+  let outcome = case httpFailure response of
+        Just err -> Left err
+        Nothing  -> rpcResult reqId (getResponseBody response)
+  case outcome of
     Left err -> return (Left err)
     Right value -> do
       let session = handshake
@@ -238,18 +247,36 @@ openSession url = do
     parseVersion = withObject "initialize result" $ \result ->
       result .:? "protocolVersion" .!= protocolVersion
 
+-- | A non-2xx reply carries no JSON-RPC response, and its status says far
+-- more than a decode failure would: 401 for a missing or wrong credential,
+-- 404 for the wrong endpoint.
+httpFailure :: Response BL.ByteString -> Maybe String
+httpFailure response
+  | status < 200 || status >= 300 =
+      Just ("HTTP " ++ show status ++ ": "
+            ++ take 200 (BL.unpack (getResponseBody response)))
+  | otherwise = Nothing
+  where
+    status = getResponseStatusCode response
+
+-- | Send one request and read the response answering it.
+rpcCall :: Session -> (Int -> Value) -> IO (Either String Value)
+rpcCall session buildBody = do
+  reqId    <- nextRequestId session
+  response <- postMcp session (buildBody reqId)
+  return $ case httpFailure response of
+    Just err -> Left err
+    Nothing  -> rpcResult reqId (getResponseBody response)
+
 toolsList :: Session -> IO (Either String [ToolSchema])
 toolsList session = do
-  reqId    <- nextRequestId session
-  response <- postMcp session (toolsListRequest reqId)
+  outcome <- rpcCall session toolsListRequest
   return $ do
-    value <- rpcResult reqId (getResponseBody response)
+    value <- outcome
     case parseMaybe parseJSON value :: Maybe ToolsListResult of
       Nothing     -> Left "could not parse the tools/list result"
       Just result -> Right (tools result)
 
 callTool :: Session -> String -> Value -> IO (Either String Value)
-callTool session tool arguments = do
-  reqId    <- nextRequestId session
-  response <- postMcp session (toolsCallRequest reqId tool arguments)
-  return (rpcResult reqId (getResponseBody response))
+callTool session tool arguments =
+  rpcCall session (\reqId -> toolsCallRequest reqId tool arguments)

@@ -3,6 +3,7 @@ module Interpreter where
 
 import AST
 import qualified Api
+import Auth (AuthHeaders)
 import qualified Schema
 import TypeCheck (findTool)
 import Data.Aeson
@@ -48,19 +49,20 @@ renderForPath :: Value -> String
 renderForPath (String text) = T.unpack text
 renderForPath value         = BL.unpack (encode value)
 
-runStep :: Map.Map String Schema.Session -> Map.Map String String
+runStep :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
         -> Map.Map String [Schema.ToolSchema] -> Context -> Step -> IO Context
 runStep sessions apis schemaMap ctx step = case stepCall step of
   ApiCall alias method parts body ->
     case Map.lookup alias apis of
       Nothing -> error ("Unknown API alias at runtime: " ++ alias)
-      Just baseUrl ->
+      Just (baseUrl, auth) ->
         case (mapM (resolveInput ctx) parts, traverse (resolveInput ctx) body) of
           (Left err, _) -> error ("Step " ++ stepName step ++ ": " ++ err)
           (_, Left err) -> error ("Step " ++ stepName step ++ ": " ++ err)
           (Right pathValues, Right bodyValue) -> do
             let path = concatMap renderForPath pathValues
-            outcome <- Api.callEndpoint baseUrl method path (fmap renderForPath bodyValue)
+            outcome <- Api.callEndpoint baseUrl auth method path
+                                       (fmap renderForPath bodyValue)
             bind outcome
 
   ToolCall alias tool args ->
@@ -83,7 +85,7 @@ runStep sessions apis schemaMap ctx step = case stepCall step of
     bind (Left err)     = error ("Step " ++ stepName step ++ " failed: " ++ err)
     bind (Right result) = return (Map.insert (bindsTo step) result ctx)
 
-runNode :: Map.Map String Schema.Session -> Map.Map String String
+runNode :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
         -> Map.Map String [Schema.ToolSchema] -> Context -> Node -> IO Context
 runNode sessions apis schemaMap ctx (StepNode step) =
   runStep sessions apis schemaMap ctx step
@@ -114,14 +116,14 @@ evalCondition ctx (Truthy input) = isTruthy (valueOf ctx input)
 evalCondition ctx (Compare Equals    left right) = valueOf ctx left == valueOf ctx right
 evalCondition ctx (Compare NotEquals left right) = valueOf ctx left /= valueOf ctx right
 
-runNodes :: Map.Map String Schema.Session -> Map.Map String String
+runNodes :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
          -> Map.Map String [Schema.ToolSchema] -> Context -> [Node] -> IO Context
 runNodes _ _ _ ctx [] = return ctx
 runNodes sessions apis schemaMap ctx (n:ns) = do
   ctx' <- runNode sessions apis schemaMap ctx n
   runNodes sessions apis schemaMap ctx' ns
 
-runWorkflow :: Map.Map String Schema.Session -> Map.Map String String
+runWorkflow :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
             -> Map.Map String [Schema.ToolSchema] -> Context -> Workflow -> IO Context
 runWorkflow sessions apis schemaMap initialCtx workflow =
   runNodes sessions apis schemaMap initialCtx (steps workflow)

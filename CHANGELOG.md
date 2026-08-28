@@ -1,5 +1,17 @@
 # Revision history for agent-dsl
 
+## 0.3.0.0 -- 2026-08-28
+
+### Added
+
+- Key-based credentials for servers and API endpoints. A declaration may name one after its URL, as `bearer env("TOKEN")` for `Authorization: Bearer <value>`, or `header "X-API-Key" env("KEY")` for a header you name. Secrets are read from the environment and never written in the workflow file, so a `.agent` file can be committed as it stands, and failures name the variable rather than its value.
+- Credentials are resolved before anything is contacted, so a variable that is not set fails immediately instead of surfacing as a 401 partway through a run.
+- `examples/auth-demo.agent`, which runs against httpbin with any values you care to set.
+
+### Fixed
+
+- A non-2xx reply from an MCP server was reported as `no JSON-RPC response with id 1 in the reply`, hiding the status. A 401 from a missing or wrong credential now reads `HTTP 401: {"error":"invalid_token",...}`.
+
 ## 0.2.0.0 -- 2026-08-27
 
 ### Added

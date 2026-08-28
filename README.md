@@ -84,6 +84,7 @@ The two example files in `examples/` are a good starting point:
 - `examples/advanced-demo.agent` — exercises the whole syntax: two servers, four tools, one step's answer fed into the next through a selector path, a truthiness branch and a nested comparison branch, and a step that picks up after the branch closes
 - `examples/many-servers-demo.agent` — seven MCP servers in one workflow: DeepWiki, Context7, GitMCP, Microsoft Learn, Cloudflare Docs, Svelte and Chakra UI
 - `examples/api-demo.agent` — mixes plain HTTP endpoints (GitHub, Hacker News, npm) with an MCP server, and splices a Hacker News story id into a URL path
+- `examples/auth-demo.agent` — bearer and named-header credentials against httpbin; run it with `DEMO_TOKEN` and `DEMO_KEY` set to anything
 - `examples/broken-demo.agent` — deliberately references a tool that doesn't exist, to demonstrate the type-checker catching it before execution
 
 ## Syntax
@@ -103,6 +104,25 @@ apis:
 ```
 
 Both blocks are optional and may appear in either order, so a workflow can be all MCP, all HTTP, or a mix of the two.
+
+**Credentials** — a declaration that needs a key names one after its URL, in either of two forms:
+
+```
+servers:
+ linear = https://mcp.linear.app/mcp bearer env("LINEAR_KEY")
+
+apis:
+ github = https://api.github.com bearer env("GITHUB_TOKEN")
+ weather = https://api.example.com header "X-API-Key" env("WEATHER_KEY")
+```
+
+`bearer` sends `Authorization: Bearer <value>`; `header` sends a header you name. A secret is always read from the environment and never written in the file, so a workflow can be committed as it stands. Every credential is resolved before anything is contacted, so a variable you forgot to set fails immediately:
+
+```
+API github: environment variable GITHUB_TOKEN is not set
+```
+
+Failures name the variable, never its value.
 
 **Steps** — call a tool on a declared server, bind its result to a name:
 
@@ -185,12 +205,10 @@ This is a working proof of concept, not a production tool yet. Known gaps, hones
 - **Paths into `structuredContent` are only checked for servers that publish an `outputSchema`** — for the rest, the shape isn't knowable ahead of time and the path is caught at runtime instead.
 - **Branch conditions cover equality only** — `==` and `!=` against a JSON value, plus a truthiness test. No ordering (`greater than`), no boolean operators (`and`, `or`, `not`).
 - **Runtime errors abort the workflow** — the interpreter uses `error` to stop on a failing step instead of the `Either`-based reporting the type-checker uses.
-- **No authentication support yet** — no API keys, bearer tokens, or OAuth for MCP servers that require them.
-- **No auth on API steps** — no headers, API keys or bearer tokens yet, so only endpoints that are open to anonymous callers work.
+- **Key-based auth only** — a bearer token or a named header, read from the environment. No OAuth, so servers that require an authorization-code flow are still out of reach.
 
 ## Roadmap
 
-- API-key auth for servers (`auth: env("...")`)
 - A keyword letting an AI agent supply its own content into an otherwise fixed, validated workflow
 - OAuth support for MCP servers that require it
 - `agent-dsl` itself exposed as an MCP server (`validate_workflow` / `run_workflow` tools), so any MCP-aware AI agent can safely execute a structurally-validated plan without ever calling a broken tool
