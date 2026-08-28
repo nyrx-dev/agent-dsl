@@ -1,0 +1,9 @@
+apis:
+ github = https://api.github.com
+
+workflow ReactRelease:
+ step release = api:github.get("/repos/facebook/react/releases/latest") -> latest
+
+output:
+ tag = latest.tag_name
+ published = latest.published_at

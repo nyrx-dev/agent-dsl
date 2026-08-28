@@ -208,9 +208,37 @@ declarationsParser =
       (DeclaredServers <$> try serversBlockParser)
   <|> (DeclaredApis    <$> try apisBlockParser)
 
+-- | Words that begin a construct. An input or output name may not be one of
+-- these, or a block would swallow the line that ends it.
+reservedWords :: [String]
+reservedWords =
+  ["servers", "apis", "workflow", "input", "output", "step", "if", "else", "with"]
+
+-- | An identifier that is not the start of some other construct.
+plainIdentifier :: Parser String
+plainIdentifier = try $ do
+  name <- lexeme identifier
+  if name `elem` reservedWords
+    then fail (show name ++ " is a reserved word")
+    else return name
+
+-- | @city "which city to look up"@ -- a name the caller must supply, with
+-- an optional description for whoever, or whatever, is calling.
+inputFieldParser :: Parser InputField
+inputFieldParser = do
+  name <- plainIdentifier
+  description <- option Nothing (Just <$> lexeme stringLiteral)
+  return InputField { inputFieldName = name, inputFieldDescription = description }
+
+inputsBlockParser :: Parser [InputField]
+inputsBlockParser = do
+  keyword "input"
+  _ <- symbol ":"
+  many (try inputFieldParser)
+
 outputFieldParser :: Parser OutputField
 outputFieldParser = do
-  name <- lexeme identifier
+  name <- plainIdentifier
   _ <- symbol "="
   value <- argParser
   return OutputField { outputName = name, outputValue = value }
@@ -230,6 +258,7 @@ workflowParser = do
   keyword "workflow"
   name <- lexeme identifier
   _ <- symbol ":"
+  inputs <- option [] (try inputsBlockParser)
   nodes <- many nodeParser
   outputs <- option [] (try outputsBlockParser)
   eof
@@ -237,6 +266,7 @@ workflowParser = do
     { workflowName = name
     , wfServers    = concat [decls | DeclaredServers decls <- blocks]
     , wfApis       = concat [decls | DeclaredApis decls <- blocks]
+    , wfInputs     = inputs
     , steps        = nodes
     , wfOutputs    = outputs
     }

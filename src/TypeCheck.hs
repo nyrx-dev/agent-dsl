@@ -215,7 +215,12 @@ typeCheck schemaMap workflow =
         { envSchemas = schemaMap
         , envApis    = map apiAlias (wfApis workflow)
         }
-      (stepErrors, finalBindings) = checkNodes env Map.empty (steps workflow)
+      -- The caller supplies these, so they are in scope from the start.
+      -- Their shape is whatever the caller sends, so paths into them are
+      -- left to the runtime.
+      declared = Map.fromList
+        [(inputFieldName f, Nothing) | f <- wfInputs workflow]
+      (stepErrors, finalBindings) = checkNodes env declared (steps workflow)
       outputErrors = concatMap
         (checkInput "output" finalBindings . outputValue)
         (wfOutputs workflow)

@@ -1,5 +1,19 @@
 # Revision history for agent-dsl
 
+## 0.4.0.0 -- 2026-08-28
+
+### Added
+
+- `agent-dsl --serve <directory>` offers a directory of workflows to an AI agent as MCP tools over stdio, one tool per `.agent` file. A workflow's inputs become the tool's arguments and its outputs become the result. The agent chooses which capability to invoke; it never chooses the calls that capability makes.
+- An `input:` block declaring values the caller supplies, optionally with a description. Inputs are in scope from the first step and are refused before anything runs if one is missing. On the command line they are passed as `agent-dsl workflow.agent owner=facebook repo=react`.
+- Reserved words, so an `input:` or `output:` block stops at the first step rather than parsing it as a field.
+- `examples/capabilities/`, a directory of workflows meant to be served rather than run by hand.
+
+### Changed
+
+- A failing step reports its failure rather than aborting the process, so one broken workflow no longer takes down a server offering several. A tool call that fails comes back as an MCP tool error.
+- The pipeline between a parsed workflow and its result now lives in `Run`, shared by the command line and the server.
+
 ## 0.3.0.0 -- 2026-08-28
 
 ### Added

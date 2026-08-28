@@ -1,0 +1,16 @@
+apis:
+ github = https://api.github.com
+
+workflow RepoHealth:
+ input:
+  owner "the GitHub organisation or user, e.g. facebook"
+  repo "the repository name, e.g. react"
+
+ step details = api:github.get("/repos/", owner, "/", repo) -> info
+ step release = api:github.get("/repos/", owner, "/", repo, "/releases/latest") -> latest
+
+output:
+ stars = info.stargazers_count
+ openIssues = info.open_issues_count
+ latestRelease = latest.tag_name
+ latestReleaseDate = latest.published_at

@@ -49,16 +49,19 @@ renderForPath :: Value -> String
 renderForPath (String text) = T.unpack text
 renderForPath value         = BL.unpack (encode value)
 
+-- | Running a workflow reports a failure rather than aborting, so that a
+-- caller -- an agent asking for one workflow among many, say -- keeps going.
 runStep :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
-        -> Map.Map String [Schema.ToolSchema] -> Context -> Step -> IO Context
+        -> Map.Map String [Schema.ToolSchema] -> Context -> Step
+        -> IO (Either String Context)
 runStep sessions apis schemaMap ctx step = case stepCall step of
   ApiCall alias method parts body ->
     case Map.lookup alias apis of
-      Nothing -> error ("Unknown API alias at runtime: " ++ alias)
+      Nothing -> failed ("unknown API alias " ++ alias)
       Just (baseUrl, auth) ->
         case (mapM (resolveInput ctx) parts, traverse (resolveInput ctx) body) of
-          (Left err, _) -> error ("Step " ++ stepName step ++ ": " ++ err)
-          (_, Left err) -> error ("Step " ++ stepName step ++ ": " ++ err)
+          (Left err, _) -> failed err
+          (_, Left err) -> failed err
           (Right pathValues, Right bodyValue) -> do
             let path = concatMap renderForPath pathValues
             outcome <- Api.callEndpoint baseUrl auth method path
@@ -67,26 +70,28 @@ runStep sessions apis schemaMap ctx step = case stepCall step of
 
   ToolCall alias tool args ->
     case Map.lookup alias sessions of
-      Nothing -> error ("Unknown server alias at runtime: " ++ alias)
+      Nothing -> failed ("unknown server alias " ++ alias)
       Just session ->
         case Map.lookup alias schemaMap of
-          Nothing -> error ("No schemas fetched for server: " ++ alias)
+          Nothing -> failed ("no schemas fetched for server " ++ alias)
           Just schemas ->
             case findTool schemas tool of
-              Nothing -> error ("Tool not found at runtime: " ++ tool)
+              Nothing -> failed ("tool not found: " ++ tool)
               Just schema ->
                 case mapM (resolveInput ctx) args of
-                  Left err -> error ("Step " ++ stepName step ++ ": " ++ err)
+                  Left err -> failed err
                   Right inputs -> do
                     let argsObj = buildArgs (Schema.requiredArgs schema) inputs
                     outcome <- Schema.callTool session tool argsObj
                     bind outcome
   where
-    bind (Left err)     = error ("Step " ++ stepName step ++ " failed: " ++ err)
-    bind (Right result) = return (Map.insert (bindsTo step) result ctx)
+    failed reason = return (Left ("Step " ++ stepName step ++ ": " ++ reason))
+    bind (Left err)     = failed err
+    bind (Right result) = return (Right (Map.insert (bindsTo step) result ctx))
 
 runNode :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
-        -> Map.Map String [Schema.ToolSchema] -> Context -> Node -> IO Context
+        -> Map.Map String [Schema.ToolSchema] -> Context -> Node
+        -> IO (Either String Context)
 runNode sessions apis schemaMap ctx (StepNode step) =
   runStep sessions apis schemaMap ctx step
 runNode sessions apis schemaMap ctx (BranchNode branch)
@@ -117,14 +122,18 @@ evalCondition ctx (Compare Equals    left right) = valueOf ctx left == valueOf c
 evalCondition ctx (Compare NotEquals left right) = valueOf ctx left /= valueOf ctx right
 
 runNodes :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
-         -> Map.Map String [Schema.ToolSchema] -> Context -> [Node] -> IO Context
-runNodes _ _ _ ctx [] = return ctx
+         -> Map.Map String [Schema.ToolSchema] -> Context -> [Node]
+         -> IO (Either String Context)
+runNodes _ _ _ ctx [] = return (Right ctx)
 runNodes sessions apis schemaMap ctx (n:ns) = do
-  ctx' <- runNode sessions apis schemaMap ctx n
-  runNodes sessions apis schemaMap ctx' ns
+  outcome <- runNode sessions apis schemaMap ctx n
+  case outcome of
+    Left err   -> return (Left err)
+    Right ctx' -> runNodes sessions apis schemaMap ctx' ns
 
 runWorkflow :: Map.Map String Schema.Session -> Map.Map String (String, AuthHeaders)
-            -> Map.Map String [Schema.ToolSchema] -> Context -> Workflow -> IO Context
+            -> Map.Map String [Schema.ToolSchema] -> Context -> Workflow
+            -> IO (Either String Context)
 runWorkflow sessions apis schemaMap initialCtx workflow =
   runNodes sessions apis schemaMap initialCtx (steps workflow)
 

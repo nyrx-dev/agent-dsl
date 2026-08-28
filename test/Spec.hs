@@ -144,6 +144,31 @@ parserTests =
         Left _ -> False
     )
 
+  , ( "parses an input block with descriptions"
+    , case parseWorkflow (demo
+        [ "workflow Demo:"
+        , " input:"
+        , "  owner \"who owns the repo\""
+        , "  repo"
+        , " step a = tool:docs.search(owner, repo) -> hits"
+        ]) of
+        Right wf ->
+          [ (inputFieldName f, inputFieldDescription f) | f <- wfInputs wf ]
+            == [("owner", Just "who owns the repo"), ("repo", Nothing)]
+        Left _ -> False
+    )
+
+  , ( "an input block stops at the first step rather than eating it"
+    , case parseWorkflow (demo
+        [ "workflow Demo:"
+        , " input:"
+        , "  owner"
+        , " step a = tool:docs.search(owner, \"x\") -> hits"
+        ]) of
+        Right wf -> length (wfInputs wf) == 1 && length (steps wf) == 1
+        Left _   -> False
+    )
+
   , ( "parses an output block naming what to report"
     , case parseWorkflow (demo
         [ "workflow Demo:"
@@ -472,6 +497,24 @@ typeCheckTests =
         , " step a = api:gh.get(\"/x\") -> out"
         , " step b = tool:docs.search(out.anything.at.all, \"10\") -> more"
         ]) == []
+    )
+
+  , ( "treats a declared input as bound from the first step"
+    , errorsIn (unlines
+        [ "workflow Demo:"
+        , " input:"
+        , "  query"
+        , " step a = tool:docs.search(query, \"10\") -> hits"
+        ]) == []
+    )
+
+  , ( "still reports a name that is neither an input nor a binding"
+    , errorsIn (unlines
+        [ "workflow Demo:"
+        , " input:"
+        , "  query"
+        , " step a = tool:docs.search(query, other) -> hits"
+        ]) == ["UnboundVar"]
     )
 
   , ( "reports an output naming a binding that does not exist"

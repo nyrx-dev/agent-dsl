@@ -75,6 +75,13 @@ data Branch = Branch {
     branchFalse :: [Node]
 } deriving (Show)
 
+-- | A value the caller supplies when starting a workflow. Inputs are in
+-- scope from the first step, exactly as a binding would be.
+data InputField = InputField {
+    inputFieldName :: String,
+    inputFieldDescription :: Maybe String
+} deriving (Show)
+
 -- | One named value a workflow reports when it finishes.
 data OutputField = OutputField {
     outputName :: String,
@@ -85,6 +92,7 @@ data Workflow = Workflow {
     workflowName :: String,
     wfServers :: [ServerDecl],
     wfApis :: [ApiDecl],
+    wfInputs :: [InputField],
     steps :: [Node],
     wfOutputs :: [OutputField]
 } deriving (Show)

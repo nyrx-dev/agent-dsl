@@ -2,6 +2,8 @@
 
 A small, statically-typed language for defining and running AI agent workflows against [MCP](https://modelcontextprotocol.io) servers.
 
+An agent-dsl workflow is a **capability**: a fixed plan an AI agent can invoke as a single tool, without choosing what calls it makes. `agent-dsl --serve <dir>` offers a directory of workflows over MCP, one tool per workflow, each type-checked against its servers before it runs.
+
 `.agent` files describe a sequence of calls — across one or more MCP servers, plain HTTP APIs, or both — as plain text. Before anything runs, every tool call is validated against the target server's **real, live schema**. A broken or hallucinated tool reference is caught immediately, with a clear error, instead of failing mid-workflow after real network calls have already fired.
 
 ```
@@ -189,6 +191,23 @@ agent-dsl examples/api-demo.agent | jq .latestRelease
 
 Output paths are checked before the workflow runs, like any other reference. A workflow that names no output reports every binding it made, which is useful while writing one and rarely what you want afterwards.
 
+**Input** — values the caller supplies, in scope from the first step:
+
+```
+workflow RepoHealth:
+ input:
+  owner "the GitHub organisation or user"
+  repo "the repository name"
+
+ step details = api:github.get("/repos/", owner, "/", repo) -> info
+```
+
+```bash
+agent-dsl repo-health.agent owner=facebook repo=react
+```
+
+A missing input is refused before anything runs. When the workflow is served over MCP these become the tool's arguments, so an agent sees a capability with a signature.
+
 **Branches** — conditionally run one of two step lists:
 
 ```
@@ -210,6 +229,25 @@ Comparisons match JSON values, so a string literal only equals a JSON string. A 
 
 Each arm's steps must be indented past the `if`. The branch ends at the first line back at the `if`'s own indentation, so a workflow can carry on after it.
 
+## Serving workflows to an agent
+
+```bash
+agent-dsl --serve examples/capabilities
+```
+
+This speaks MCP over stdio and offers one tool per `.agent` file in the directory. A workflow's `input:` block becomes the tool's arguments and its `output:` block becomes the result, so an agent sees:
+
+```
+tool: repo-health | args: ['owner', 'repo']
+      Runs the fixed, pre-validated workflow RepoHealth (2 step(s)), reporting:
+      stars openIssues latestRelease latestReleaseDate. Every call it makes is
+      checked against its servers' schemas before any of them run.
+```
+
+The point is what the agent *cannot* do. It picks which capability to invoke; it never picks the calls that capability makes. Those were written by a person, committed to a repository, and checked against live schemas before any of them ran. A failing workflow comes back as a tool error rather than taking the server down with it.
+
+To use it from a client, point that client at `agent-dsl --serve <your-workflow-directory>` as an MCP server.
+
 ## Editor support
 
 A companion VS Code extension ([`agent-dsl-vscode`](https://github.com/Turtle-dev3/agent-dsl-vscode)) provides:
@@ -225,14 +263,15 @@ This is a working proof of concept, not a production tool yet. Known gaps, hones
 - **Positional, not named, argument matching** — arguments are matched to a schema's required parameters by position, not by name. The `.agent` file's argument order must match the schema's declared order.
 - **Paths into `structuredContent` are only checked for servers that publish an `outputSchema`** — for the rest, the shape isn't knowable ahead of time and the path is caught at runtime instead.
 - **Branch conditions cover equality only** — `==` and `!=` against a JSON value, plus a truthiness test. No ordering (`greater than`), no boolean operators (`and`, `or`, `not`).
-- **Runtime errors abort the workflow** — the interpreter uses `error` to stop on a failing step instead of the `Either`-based reporting the type-checker uses.
+- **No retries, loops or error branches** — a failing step stops the workflow and reports why. Real automation wants to retry a flaky call or iterate over a list, and neither is expressible yet.
 - **Key-based auth only** — a bearer token or a named header, read from the environment. No OAuth, so servers that require an authorization-code flow are still out of reach.
 
 ## Roadmap
 
 - A keyword letting an AI agent supply its own content into an otherwise fixed, validated workflow
 - OAuth support for MCP servers that require it
-- `agent-dsl` itself exposed as an MCP server (`validate_workflow` / `run_workflow` tools), so any MCP-aware AI agent can safely execute a structurally-validated plan without ever calling a broken tool
+- Retries and error branches, so a flaky step need not end a run
+- Iteration, so a workflow can act on each item of a list
 
 ## License
 
