@@ -168,6 +168,27 @@ Methods are `get`, `post`, `put`, `patch`, `delete` and `head`; only `post`, `pu
 
 The type-checker still catches an undeclared alias, an unknown method, a body on a method that takes none, and a reference to a binding that does not exist — but an HTTP endpoint publishes no schema, so argument counts and selector paths into an API result cannot be checked ahead of time the way MCP tool calls are.
 
+**Output** — name what the workflow reports when it finishes:
+
+```
+output:
+ <name> = <input>
+```
+
+```
+output:
+ topStory = story.title
+ latestRelease = latest.tag_name
+```
+
+The result is a JSON object of exactly those values, on stdout. Everything else — progress, errors — goes to stderr, so a workflow pipes straight into whatever asked for it:
+
+```bash
+agent-dsl examples/api-demo.agent | jq .latestRelease
+```
+
+Output paths are checked before the workflow runs, like any other reference. A workflow that names no output reports every binding it made, which is useful while writing one and rarely what you want afterwards.
+
 **Branches** — conditionally run one of two step lists:
 
 ```

@@ -75,11 +75,18 @@ data Branch = Branch {
     branchFalse :: [Node]
 } deriving (Show)
 
+-- | One named value a workflow reports when it finishes.
+data OutputField = OutputField {
+    outputName :: String,
+    outputValue :: Input
+} deriving (Show)
+
 data Workflow = Workflow {
     workflowName :: String,
     wfServers :: [ServerDecl],
     wfApis :: [ApiDecl],
-    steps :: [Node]
+    steps :: [Node],
+    wfOutputs :: [OutputField]
 } deriving (Show)
 
 -- | How a reference is written in source, for error messages.

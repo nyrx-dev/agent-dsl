@@ -4,6 +4,9 @@
 
 ### Added
 
+- An `output:` block naming what a workflow reports, as `<name> = <input>`. The result is a JSON object of exactly those values on stdout; a workflow that names none still reports every binding. Output paths are checked before the run, like any other reference.
+- Progress and errors now go to stderr, so a workflow's result can be piped: `agent-dsl workflow.agent | jq .field`.
+
 - Key-based credentials for servers and API endpoints. A declaration may name one after its URL, as `bearer env("TOKEN")` for `Authorization: Bearer <value>`, or `header "X-API-Key" env("KEY")` for a header you name. Secrets are read from the environment and never written in the workflow file, so a `.agent` file can be committed as it stands, and failures name the variable rather than its value.
 - Credentials are resolved before anything is contacted, so a variable that is not set fails immediately instead of surfacing as a 401 partway through a run.
 - `examples/auth-demo.agent`, which runs against httpbin with any values you care to set.

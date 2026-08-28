@@ -158,15 +158,19 @@ checkStep env bound step = case stepCall step of
                   | otherwise = []
             in (inputErrors ++ arity, Just (resultSchema schema))
   where
-    inputErrors = concatMap checkInput (callInputs (stepCall step))
+    inputErrors =
+      concatMap (checkInput (stepName step) bound) (callInputs (stepCall step))
 
-    checkInput (Lit _) = []
-    checkInput input@(Var name selectors) = case Map.lookup name bound of
-      Nothing           -> [UnboundVar (stepName step) name]
-      Just Nothing      -> []
-      Just (Just shape) -> case checkPath shape selectors of
-        Right ()    -> []
-        Left reason -> [BadPath (stepName step) (renderInput input) reason]
+-- | Checks one input against the bindings in scope: the name must be bound,
+-- and any selector path must fit the shape the binding is known to have.
+checkInput :: String -> Bindings -> Input -> [TypeError]
+checkInput _     _     (Lit _) = []
+checkInput label bound input@(Var name selectors) = case Map.lookup name bound of
+  Nothing           -> [UnboundVar label name]
+  Just Nothing      -> []
+  Just (Just shape) -> case checkPath shape selectors of
+    Right ()    -> []
+    Left reason -> [BadPath label (renderInput input) reason]
 
 conditionInputs :: Condition -> [Input]
 conditionInputs (Truthy input)         = [input]
@@ -211,5 +215,9 @@ typeCheck schemaMap workflow =
         { envSchemas = schemaMap
         , envApis    = map apiAlias (wfApis workflow)
         }
-      (errors, _) = checkNodes env Map.empty (steps workflow)
+      (stepErrors, finalBindings) = checkNodes env Map.empty (steps workflow)
+      outputErrors = concatMap
+        (checkInput "output" finalBindings . outputValue)
+        (wfOutputs workflow)
+      errors = stepErrors ++ outputErrors
   in if null errors then Right () else Left errors

@@ -16,3 +16,8 @@ workflow ReleaseWatch:
   step unreleased = tool:wiki.read_wiki_structure("facebook/react") -> notes
  else:
   step notes = tool:wiki.ask_question("facebook/react", latest.name) -> notes
+
+output:
+ topStory = story.title
+ latestRelease = latest.tag_name
+ npmVersion = onNpm.version

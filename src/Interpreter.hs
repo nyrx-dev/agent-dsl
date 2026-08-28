@@ -127,3 +127,16 @@ runWorkflow :: Map.Map String Schema.Session -> Map.Map String (String, AuthHead
             -> Map.Map String [Schema.ToolSchema] -> Context -> Workflow -> IO Context
 runWorkflow sessions apis schemaMap initialCtx workflow =
   runNodes sessions apis schemaMap initialCtx (steps workflow)
+
+-- | The values a workflow reports, as a JSON object. A workflow that names
+-- none reports everything it bound.
+collectOutputs :: Context -> [OutputField] -> Either String Value
+collectOutputs ctx [] =
+  Right (object [Key.fromString name .= value | (name, value) <- Map.toList ctx])
+collectOutputs ctx fields = do
+  named <- mapM resolveField fields
+  return (object named)
+  where
+    resolveField field = do
+      value <- resolveInput ctx (outputValue field)
+      return (Key.fromString (outputName field) .= value)

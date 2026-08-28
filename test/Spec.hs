@@ -6,6 +6,8 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import System.Exit (exitFailure)
 import Text.Megaparsec (errorBundlePretty, runParser)
 import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Map as Map
 
 import Data.Aeson (Value (..), decode, object, toJSON, (.=))
@@ -13,7 +15,7 @@ import Data.Aeson (Value (..), decode, object, toJSON, (.=))
 import AST
 import Auth (resolveAuth)
 import Data.List (isInfixOf)
-import Interpreter (buildArgs, evalCondition, isTruthy, resolveInput)
+import Interpreter (buildArgs, collectOutputs, evalCondition, isTruthy, resolveInput)
 import System.Environment (setEnv, unsetEnv)
 import Parser (workflowParser)
 import Schema hiding (toolName)
@@ -140,6 +142,29 @@ parserTests =
               && length (branchFalse b) == 1
           _ -> False
         Left _ -> False
+    )
+
+  , ( "parses an output block naming what to report"
+    , case parseWorkflow (demo
+        [ "workflow Demo:"
+        , " step a = tool:docs.search(\"q\") -> hits"
+        , ""
+        , "output:"
+        , " first = hits.content[0].text"
+        , " failed = hits.isError"
+        ]) of
+        Right wf ->
+          [ (outputName f, outputValue f) | f <- wfOutputs wf ]
+            == [ ("first", Var "hits" [Key "content", Index 0, Key "text"])
+               , ("failed", Var "hits" [Key "isError"])
+               ]
+        Left _ -> False
+    )
+
+  , ( "a workflow with no output block names nothing"
+    , case parseWorkflow simpleSource of
+        Right wf -> null (wfOutputs wf)
+        Left _   -> False
     )
 
   , ( "parses a bearer credential on a server declaration"
@@ -449,6 +474,40 @@ typeCheckTests =
         ]) == []
     )
 
+  , ( "reports an output naming a binding that does not exist"
+    , errorsIn (unlines
+        [ "workflow Demo:"
+        , " step a = tool:docs.search(\"q\", \"10\") -> hits"
+        , ""
+        , "output:"
+        , " x = nope.field"
+        ]) == ["UnboundVar"]
+    )
+
+  , ( "reports an output reaching down a path the result cannot have"
+    , errorsIn (unlines
+        [ "workflow Demo:"
+        , " step a = tool:docs.search(\"q\", \"10\") -> hits"
+        , ""
+        , "output:"
+        , " x = hits.contnt"
+        ]) == ["BadPath"]
+    )
+
+  , ( "accepts an output naming a binding from inside both branch arms"
+    , errorsIn (unlines
+        [ "workflow Demo:"
+        , " step a = tool:docs.search(\"q\", \"10\") -> hits"
+        , " if hits:"
+        , "  step b = tool:docs.search(\"q\", \"10\") -> found"
+        , " else:"
+        , "  step c = tool:docs.search(\"q\", \"10\") -> found"
+        , ""
+        , "output:"
+        , " x = found.isError"
+        ]) == []
+    )
+
   , ( "reports unbound names on both sides of a comparison"
     , errorsIn (unlines ["workflow Demo:", " if left == right:", " else:"])
         == ["UnboundVar", "UnboundVar"]
@@ -586,6 +645,20 @@ interpreterTests =
         (Compare NotEquals (Var "answer" [Key "content", Index 0, Key "text"]) (Lit "other"))
     )
 
+  , ( "reports only the values an output block names"
+    , collectOutputs boundCtx
+        [ OutputField "text" (Var "answer" [Key "content", Index 0, Key "text"]) ]
+        == Right (object ["text" .= ("hello" :: String)])
+    )
+
+  , ( "reports every binding when no output is named"
+    , keyed (collectOutputs boundCtx []) == Just ["answer", "hits"]
+    )
+
+  , ( "fails rather than reporting a value that is not there"
+    , isLeftE (collectOutputs boundCtx [OutputField "x" (Var "answer" [Key "nope"])])
+    )
+
   , ( "treats null, false, zero and empty containers as false"
     , not (any isTruthy [Null, Bool False, Number 0, String "", object [], toJSON ([] :: [Int])])
     )
@@ -596,6 +669,8 @@ interpreterTests =
   ]
   where
     isLeftE = either (const True) (const False)
+    keyed (Right (Object fields)) = Just (map (Key.toString . fst) (KeyMap.toAscList fields))
+    keyed _                       = Nothing
 
 boundCtx :: Map.Map String Value
 boundCtx = Map.fromList

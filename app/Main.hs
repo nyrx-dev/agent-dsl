@@ -5,20 +5,19 @@ import System.Environment (getArgs)
 import System.Exit (die, exitFailure)
 import System.IO (hPutStrLn, stderr)
 import Text.Megaparsec (runParser, errorBundlePretty)
-import Data.Aeson (Value)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.List (intercalate)
 import qualified Data.Map as Map
 
 import qualified AST
-import AST (workflowName, wfServers, wfApis, serverAlias, serverUrl, serverAuth,
-            apiAlias, apiBaseUrl, apiAuth, ServerDecl)
+import AST (workflowName, wfServers, wfApis, wfOutputs, serverAlias, serverUrl,
+            serverAuth, apiAlias, apiBaseUrl, apiAuth, ServerDecl)
 import qualified Auth
 import Parser (workflowParser)
 import qualified Schema
 import TypeCheck (typeCheck)
-import Interpreter (runWorkflow)
+import Interpreter (collectOutputs, runWorkflow)
 
 
 main :: IO ()
@@ -36,12 +35,12 @@ runFile filePath = do
 
   case runParser workflowParser filePath contents of
     Left err -> do
-      putStrLn "Parse error:"
-      putStrLn (errorBundlePretty err)
+      hPutStrLn stderr "Parse error:"
+      hPutStrLn stderr (errorBundlePretty err)
       exitFailure
 
     Right workflow -> do
-      putStrLn ("Parsed workflow: " ++ workflowName workflow)
+      progress ("Parsed workflow: " ++ workflowName workflow)
 
       if null (wfServers workflow) && null (wfApis workflow)
         then do
@@ -69,27 +68,28 @@ runFile filePath = do
                 [ (apiAlias d, (apiBaseUrl d, headers))
                 | (d, headers) <- zip (wfApis workflow) apiHeaders
                 ]
-          mapM_ (\d -> putStrLn ("  " ++ apiAlias d ++ " -> " ++ apiBaseUrl d))
+          mapM_ (\d -> progress ("  " ++ apiAlias d ++ " -> " ++ apiBaseUrl d))
                 (wfApis workflow)
 
           (sessions, schemaMap) <-
             if null (wfServers workflow)
               then return (Map.empty, Map.empty)
               else do
-                putStrLn "Fetching tool schemas..."
+                progress "Fetching tool schemas..."
                 fetchAllSchemas (zip (wfServers workflow) serverHeaders)
 
           case typeCheck schemaMap workflow of
             Left errors -> do
-              putStrLn "Workflow failed type-checking:"
-              mapM_ print errors
+              hPutStrLn stderr "Workflow failed type-checking:"
+              mapM_ (hPutStrLn stderr . show) errors
               exitFailure
 
             Right () -> do
-              putStrLn "Type-check passed. Running workflow..."
+              progress "Type-check passed. Running workflow..."
               finalCtx <- runWorkflow sessions apis schemaMap Map.empty workflow
-              putStrLn "Workflow finished. Final context:"
-              printContext finalCtx
+              case collectOutputs finalCtx (wfOutputs workflow) of
+                Left err     -> die ("Output: " ++ err)
+                Right result -> BLC.putStrLn (encodePretty result)
 
 -- | Aliases declared more than once. Map.fromList would silently keep only
 -- the last URL for each, leaving the earlier one unreachable.
@@ -108,7 +108,7 @@ resolveOrDie label auth = do
 fetchAllSchemas :: [(ServerDecl, Auth.AuthHeaders)]
                 -> IO (Map.Map String Schema.Session, Map.Map String [Schema.ToolSchema])
 fetchAllSchemas decls = do
-  mapM_ (\(decl, _) -> putStrLn ("  " ++ serverAlias decl ++ " -> " ++ serverUrl decl)) decls
+  mapM_ (\(decl, _) -> progress ("  " ++ serverAlias decl ++ " -> " ++ serverUrl decl)) decls
   -- Servers are independent, and the handshake is three round trips each, so
   -- opening them one after another is the slowest part of most runs.
   entries <- mapConcurrently openOne decls
@@ -126,10 +126,7 @@ fetchAllSchemas decls = do
             Left err      -> die ("Could not list tools on " ++ serverUrl decl ++ ": " ++ err)
             Right schemas -> return (serverAlias decl, session, schemas)
 
-printContext :: Map.Map String Value -> IO ()
-printContext ctx = mapM_ printEntry (Map.toList ctx)
-  where
-    printEntry (name, value) = do
-      putStrLn (name ++ ":")
-      BLC.putStrLn (encodePretty value)
-      putStrLn ""
+-- | Progress notes go to stderr, so that stdout carries only the workflow's
+-- result and can be piped into whatever asked for it.
+progress :: String -> IO ()
+progress = hPutStrLn stderr

@@ -208,6 +208,21 @@ declarationsParser =
       (DeclaredServers <$> try serversBlockParser)
   <|> (DeclaredApis    <$> try apisBlockParser)
 
+outputFieldParser :: Parser OutputField
+outputFieldParser = do
+  name <- lexeme identifier
+  _ <- symbol "="
+  value <- argParser
+  return OutputField { outputName = name, outputValue = value }
+
+-- | What the workflow reports when it finishes. Without this block every
+-- binding is printed, which is rarely what a caller wants.
+outputsBlockParser :: Parser [OutputField]
+outputsBlockParser = do
+  keyword "output"
+  _ <- symbol ":"
+  many (try outputFieldParser)
+
 workflowParser :: Parser Workflow
 workflowParser = do
   spaceConsumer
@@ -216,10 +231,12 @@ workflowParser = do
   name <- lexeme identifier
   _ <- symbol ":"
   nodes <- many nodeParser
+  outputs <- option [] (try outputsBlockParser)
   eof
   return Workflow
     { workflowName = name
     , wfServers    = concat [decls | DeclaredServers decls <- blocks]
     , wfApis       = concat [decls | DeclaredApis decls <- blocks]
     , steps        = nodes
+    , wfOutputs    = outputs
     }
