@@ -11,6 +11,7 @@
 
 ### Changed
 
+- A path that is not there now says which selector failed and what was there instead, rather than only that the whole path was missing. `latest.tag` against a GitHub release reports `has no field "tag"; did you mean "tag_name"?`, and a path running into a scalar reports `is a string, not an object`. The type-checker already said this much for MCP results; the runtime, which is where an API result's path is checked, said almost nothing.
 - A failing step reports its failure rather than aborting the process, so one broken workflow no longer takes down a server offering several. A tool call that fails comes back as an MCP tool error.
 - The pipeline between a parsed workflow and its result now lives in `Run`, shared by the command line and the server.
 

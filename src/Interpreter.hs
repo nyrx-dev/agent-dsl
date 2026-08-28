@@ -10,7 +10,9 @@ import Data.Aeson
 import Data.Maybe (fromMaybe)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Char (toLower)
 import Data.Foldable (toList)
+import Data.List (intercalate, isInfixOf)
 import qualified Data.Map as Map
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Text as T
@@ -36,9 +38,60 @@ lookupInput ctx (Var name selectors)  = Map.lookup name ctx >>= selectPath selec
 -- sending null instead would surface as a confusing schema failure from the
 -- server, far from the mistake.
 resolveInput :: Context -> Input -> Either String Value
-resolveInput ctx input = case lookupInput ctx input of
-  Just value -> Right value
-  Nothing    -> Left (renderInput input ++ " is not there in the bound value")
+resolveInput _   (Lit s) = Right (String (T.pack s))
+resolveInput ctx input@(Var name selectors) = case Map.lookup name ctx of
+  Nothing -> Left (name ++ " is not bound")
+  Just value -> case selectPath selectors value of
+    Just found -> Right found
+    Nothing    -> Left (renderInput input ++ " " ++ explainPath value selectors)
+
+-- | Why a path did not fit, pointed at the selector that failed rather than
+-- at the whole path, and saying what was there instead.
+explainPath :: Value -> [Selector] -> String
+explainPath _     []                = "is not there"
+explainPath value (Key key : rest)  = case value of
+  Object fields -> case KeyMap.lookup (Key.fromString key) fields of
+    Just found -> explainPath found rest
+    Nothing    -> "has no field " ++ show key
+                  ++ suggest key (map Key.toString (KeyMap.keys fields))
+  _ -> "is " ++ describeValue value ++ ", not an object"
+explainPath value (Index i : rest)  = case value of
+  Array items
+    | item : _ <- drop i (toList items) -> explainPath item rest
+    | otherwise -> "has no item " ++ show i ++ ", holding "
+                   ++ show (length (toList items)) ++ " of them"
+  _ -> "is " ++ describeValue value ++ ", not an array"
+
+-- | A near miss is far more use than the whole list of fields, and a
+-- mistyped path is usually a near miss.
+suggest :: String -> [String] -> String
+suggest wanted available = case near of
+  []      -> "; it has " ++ summarise available
+  matches -> "; did you mean " ++ intercalate " or " (map show (take 3 matches)) ++ "?"
+  where
+    near =
+      [ key | key <- available
+      , key /= wanted
+      , lower wanted `isInfixOf` lower key || lower key `isInfixOf` lower wanted
+      ]
+    lower = map toLower
+
+summarise :: [String] -> String
+summarise keys
+  | extra <= 0 = intercalate ", " (map show keys)
+  | otherwise  = intercalate ", " (map show (take shown keys))
+                 ++ ", and " ++ show extra ++ " more"
+  where
+    shown = 12
+    extra = length keys - shown
+
+describeValue :: Value -> String
+describeValue Null       = "null"
+describeValue (Bool _)   = "a boolean"
+describeValue (Number _) = "a number"
+describeValue (String _) = "a string"
+describeValue (Array _)  = "an array"
+describeValue (Object _) = "an object"
 
 buildArgs :: [String] -> [Value] -> Value
 buildArgs names values = object (zipWith (\n v -> Key.fromString n .= v) names values)
@@ -146,6 +199,6 @@ collectOutputs ctx fields = do
   named <- mapM resolveField fields
   return (object named)
   where
-    resolveField field = do
-      value <- resolveInput ctx (outputValue field)
-      return (Key.fromString (outputName field) .= value)
+    resolveField field = case resolveInput ctx (outputValue field) of
+      Right value -> Right (Key.fromString (outputName field) .= value)
+      Left err    -> Left ("Output " ++ outputName field ++ ": " ++ err)

@@ -658,7 +658,27 @@ interpreterTests =
 
   , ( "fails on a selector the bound value does not have"
     , resolveInput boundCtx (Var "answer" [Key "missing"])
-        == Left "answer.missing is not there in the bound value"
+        == Left "answer.missing has no field \"missing\"; it has \"content\", \"isError\""
+    )
+
+  , ( "suggests the field that was probably meant"
+    , resolveInput boundCtx (Var "answer" [Key "conten"])
+        == Left "answer.conten has no field \"conten\"; did you mean \"content\"?"
+    )
+
+  , ( "lists what is there when nothing looks close"
+    , resolveInput boundCtx (Var "answer" [Key "zzz"])
+        == Left "answer.zzz has no field \"zzz\"; it has \"content\", \"isError\""
+    )
+
+  , ( "says what a value is when a path runs into a scalar"
+    , resolveInput boundCtx (Var "hits" [Key "anything"])
+        == Left "hits.anything is a boolean, not an object"
+    )
+
+  , ( "points at the selector that failed, not the whole path"
+    , resolveInput boundCtx (Var "answer" [Key "content", Index 0, Key "txt"])
+        == Left "answer.content[0].txt has no field \"txt\"; it has \"text\""
     )
 
   , ( "fails on an array index past the end"
