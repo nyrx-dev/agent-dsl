@@ -167,8 +167,8 @@ runOffered :: Offered -> Context -> IO Value
 runOffered item inputs = do
   outcome <- executeWorkflow note (offeredWorkflow item) inputs
   return $ case outcome of
-    Left err     -> toolError err
-    Right result -> object
+    Left err          -> toolError err
+    Right (result, _) -> object
       [ "content"           .= [textBlock (BL.unpack (encode result))]
       , "structuredContent" .= result
       , "isError"           .= False

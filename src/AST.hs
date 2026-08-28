@@ -47,7 +47,9 @@ data Call
 data Step = Step {
     stepName :: String,
     stepCall :: Call,
-    bindsTo :: String
+    bindsTo :: String,
+    -- | Where the step starts, so an editor can point at it.
+    stepLine :: Int
 } deriving (Show)
 
 -- | The inputs a call reads, wherever they appear in it.
@@ -85,7 +87,8 @@ data InputField = InputField {
 -- | One named value a workflow reports when it finishes.
 data OutputField = OutputField {
     outputName :: String,
-    outputValue :: Input
+    outputValue :: Input,
+    outputLine :: Int
 } deriving (Show)
 
 data Workflow = Workflow {

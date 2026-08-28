@@ -1,11 +1,13 @@
 module Main where
 
-import AST (Workflow, workflowName)
+import AST (workflowName)
 import Data.Aeson (Value, decode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Parser (workflowParser)
 import Run (executeWorkflow)
+import Lsp (runLanguageServer)
 import Serve (serveDirectory)
+import qualified Shapes
 import System.Environment (getArgs)
 import System.Exit (die, exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -19,10 +21,12 @@ main = do
   args <- getArgs
   case args of
     ["--serve", dir]         -> serveDirectory dir
+    ["--lsp"]                -> runLanguageServer
     (filePath : assignments) -> runFile filePath assignments
     _ -> do
       hPutStrLn stderr "Usage: agent-dsl <workflow-file> [name=value ...]"
       hPutStrLn stderr "       agent-dsl --serve <directory>"
+      hPutStrLn stderr "       agent-dsl --lsp"
       exitFailure
 
 runFile :: FilePath -> [String] -> IO ()
@@ -36,14 +40,14 @@ runFile filePath assignments = do
     Right workflow -> do
       progress ("Parsed workflow: " ++ workflowName workflow)
       inputs <- either die return (parseAssignments assignments)
-      run workflow inputs
-
-run :: Workflow -> Map.Map String Value -> IO ()
-run workflow inputs = do
-  outcome <- executeWorkflow progress workflow inputs
-  case outcome of
-    Left err     -> die err
-    Right result -> BLC.putStrLn (encodePretty result)
+      outcome <- executeWorkflow progress workflow inputs
+      case outcome of
+        Left err -> die err
+        Right (reported, bindings) -> do
+          -- Recorded so that an editor can complete a path into a result no
+          -- schema describes. Suggestions only; never used to type-check.
+          Shapes.recordShapes filePath bindings
+          BLC.putStrLn (encodePretty reported)
 
 -- | @name=value@ pairs from the command line. A value that reads as JSON is
 -- taken as JSON, so a number or a list can be passed; anything else is a

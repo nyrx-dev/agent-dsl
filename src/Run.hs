@@ -22,8 +22,10 @@ validateWorkflow note workflow = do
   prepared <- prepare note workflow
   return (fmap (const ()) prepared)
 
--- | Run a workflow with the inputs its caller supplied.
-executeWorkflow :: Note -> Workflow -> Context -> IO (Either String Value)
+-- | Run a workflow with the inputs its caller supplied, reporting both what
+-- it names as output and every binding it made -- the latter is what gets
+-- recorded for an editor to complete from.
+executeWorkflow :: Note -> Workflow -> Context -> IO (Either String (Value, Context))
 executeWorkflow note workflow inputs =
   case missingInputs workflow inputs of
     missing@(_ : _) ->
@@ -35,7 +37,10 @@ executeWorkflow note workflow inputs =
         Right (sessions, apis, schemaMap) -> do
           note "Type-check passed. Running workflow..."
           outcome <- runWorkflow sessions apis schemaMap inputs workflow
-          return (outcome >>= \final -> collectOutputs final (wfOutputs workflow))
+          return $ do
+            final <- outcome
+            reported <- collectOutputs final (wfOutputs workflow)
+            return (reported, final)
 
 missingInputs :: Workflow -> Context -> [String]
 missingInputs workflow inputs =
@@ -45,13 +50,14 @@ missingInputs workflow inputs =
   , not (Map.member name inputs)
   ]
 
--- | Open every declared server, fetch its schemas and type-check against
--- them. Everything that can be checked without running is checked here.
-prepare :: Note -> Workflow
+-- | Open every declared server and fetch its schemas, without checking the
+-- workflow against them. An editor wants the schemas even for a file that
+-- does not currently type-check -- that is exactly when it needs them.
+connect :: Note -> Workflow
         -> IO (Either String ( Map.Map String Schema.Session
                              , Map.Map String (String, Auth.AuthHeaders)
                              , Map.Map String [Schema.ToolSchema] ))
-prepare note workflow = do
+connect note workflow =
   case duplicates (map serverAlias (wfServers workflow))
          ++ duplicates (map apiAlias (wfApis workflow)) of
     dupes@(_ : _) ->
@@ -74,13 +80,23 @@ prepare note workflow = do
           mapM_ (\d -> note ("  " ++ apiAlias d ++ " -> " ++ apiBaseUrl d))
                 (wfApis workflow)
           opened <- openServers note (zip (wfServers workflow) serverHeaders)
-          case opened of
-            Left err -> return (Left err)
-            Right (sessions, schemaMap) ->
-              case typeCheck schemaMap workflow of
-                Left errors -> return (Left (unlines
-                  ("Workflow failed type-checking:" : map show errors)))
-                Right () -> return (Right (sessions, apis, schemaMap))
+          return (fmap (\(sessions, schemaMap) -> (sessions, apis, schemaMap)) opened)
+
+-- | Connect, then type-check. Everything that can be checked without
+-- running is checked here.
+prepare :: Note -> Workflow
+        -> IO (Either String ( Map.Map String Schema.Session
+                             , Map.Map String (String, Auth.AuthHeaders)
+                             , Map.Map String [Schema.ToolSchema] ))
+prepare note workflow = do
+  connected <- connect note workflow
+  case connected of
+    Left err -> return (Left err)
+    Right (sessions, apis, schemaMap) ->
+      case typeCheck schemaMap workflow of
+        Left errors -> return (Left (unlines
+          ("Workflow failed type-checking:" : map show errors)))
+        Right () -> return (Right (sessions, apis, schemaMap))
 
 -- | Servers are independent, and the handshake is three round trips each,
 -- so opening them one after another is the slowest part of most runs.

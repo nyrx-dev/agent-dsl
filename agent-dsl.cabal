@@ -20,7 +20,7 @@ name:               agent-dsl
 -- PVP summary:     +-+------- breaking API changes
 --                  | | +----- non-breaking API additions
 --                  | | | +--- code changes with no API change
-version:            0.4.0.0
+version:            0.5.0.0
 
 -- A short (one-line) description of the package.
 -- synopsis:
@@ -62,7 +62,7 @@ executable agent-dsl
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules:    AST, Api, Auth, Parser, Run, Serve, Schema, TypeCheck, Interpreter
+    other-modules:    AST, Api, Auth, Lsp, Parser, Run, Serve, Schema, Shapes, TypeCheck, Interpreter
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -91,7 +91,7 @@ test-suite agent-dsl-test
     import:           warnings
     type:             exitcode-stdio-1.0
     main-is:          Spec.hs
-    other-modules:    AST, Api, Auth, Parser, Run, Serve, Schema, TypeCheck, Interpreter
+    other-modules:    AST, Api, Auth, Lsp, Parser, Run, Serve, Schema, Shapes, TypeCheck, Interpreter
     hs-source-dirs:   test, src
     build-depends:    base ^>=4.18.3.0,
                        megaparsec,

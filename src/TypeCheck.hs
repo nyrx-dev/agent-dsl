@@ -221,8 +221,9 @@ typeCheck schemaMap workflow =
       declared = Map.fromList
         [(inputFieldName f, Nothing) | f <- wfInputs workflow]
       (stepErrors, finalBindings) = checkNodes env declared (steps workflow)
-      outputErrors = concatMap
-        (checkInput "output" finalBindings . outputValue)
-        (wfOutputs workflow)
+      outputErrors = concat
+        [ checkInput ("output " ++ outputName f) finalBindings (outputValue f)
+        | f <- wfOutputs workflow
+        ]
       errors = stepErrors ++ outputErrors
   in if null errors then Right () else Left errors

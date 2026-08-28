@@ -14,6 +14,8 @@ import Data.Aeson (Value (..), decode, object, toJSON, (.=))
 
 import AST
 import Auth (resolveAuth)
+import qualified Lsp
+import qualified Shapes
 import Data.List (isInfixOf)
 import Interpreter (buildArgs, collectOutputs, evalCondition, isTruthy, resolveInput)
 import System.Environment (setEnv, unsetEnv)
@@ -45,6 +47,9 @@ main = do
 
   putStrLn "Interpreter"
   mapM_ (uncurry it) interpreterTests
+
+  putStrLn "Shapes and completion"
+  mapM_ (uncurry it) shapeTests
 
   putStrLn "Auth"
   authResults <- authTests
@@ -710,7 +715,7 @@ interpreterTests =
 
   , ( "reports only the values an output block names"
     , collectOutputs boundCtx
-        [ OutputField "text" (Var "answer" [Key "content", Index 0, Key "text"]) ]
+        [ OutputField "text" (Var "answer" [Key "content", Index 0, Key "text"]) 1 ]
         == Right (object ["text" .= ("hello" :: String)])
     )
 
@@ -719,7 +724,7 @@ interpreterTests =
     )
 
   , ( "fails rather than reporting a value that is not there"
-    , isLeftE (collectOutputs boundCtx [OutputField "x" (Var "answer" [Key "nope"])])
+    , isLeftE (collectOutputs boundCtx [OutputField "x" (Var "answer" [Key "nope"]) 1])
     )
 
   , ( "treats null, false, zero and empty containers as false"
@@ -784,3 +789,57 @@ authTests = do
       , not (any ("sekret" `isInfixOf`) [show absent, show emptied])
       )
     ]
+
+
+-- Shapes and completion --------------------------------------------------------
+
+sampleShape :: Value
+sampleShape = Shapes.inferSchema (object
+  [ "title"  .= ("a story" :: String)
+  , "score"  .= (16 :: Int)
+  , "kids"   .= [object ["by" .= ("someone" :: String)]]
+  , "dead"   .= False
+  ])
+
+shapeTests :: [(String, Bool)]
+shapeTests =
+  [ ( "records an object's fields as a schema"
+    , Lsp.fieldsAt sampleShape [] == ["dead", "kids", "score", "title"]
+    )
+
+  , ( "reaches through a recorded array into its items"
+    , Lsp.fieldsAt sampleShape [Key "kids", Index 0] == ["by"]
+    )
+
+  , ( "offers nothing past a scalar"
+    , Lsp.fieldsAt sampleShape [Key "title"] == []
+    )
+
+  , ( "reads the binding and selectors already typed"
+    , Lsp.pathBeforeCursor " x = top.kids[0]."
+        == Just ("top", [Key "kids", Index 0])
+    )
+
+  , ( "a bare binding and a dot is a path with no selectors yet"
+    , Lsp.pathBeforeCursor " x = top." == Just ("top", [])
+    )
+
+  , ( "finds which server and tool produced a binding"
+    , Lsp.bindingSource
+        " step ask = tool:wiki.ask_question(\"a\", \"b\") -> answer\n" "answer"
+        == Just ("wiki", "ask_question")
+    )
+
+  , ( "reads the aliases a servers block declares"
+    , Lsp.declaredAliases "servers"
+        (unlines ["servers:", " wiki = https://x", " docs = https://y", "", "workflow W:",
+                  " step a = tool:wiki.t() -> r"])
+        == ["docs", "wiki"]
+    )
+
+  , ( "does not mistake a step for a declaration"
+    , Lsp.declaredAliases "apis"
+        (unlines ["apis:", " gh = https://x", "workflow W:", " step a = tool:d.t() -> r"])
+        == ["gh"]
+    )
+  ]

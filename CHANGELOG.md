@@ -1,5 +1,18 @@
 # Revision history for agent-dsl
 
+## 0.5.0.0 -- 2026-08-28
+
+### Added
+
+- `agent-dsl --lsp`, a language server for `.agent` files. It reports everything the type-checker finds on the line it belongs to, and completes a path into an earlier step's result: after `answer.` it offers the fields that result actually has. For an MCP tool the fields come from the server's schema, so completion works before the workflow has ever run; for an HTTP endpoint, which publishes no schema, they come from the last run.
+- Completion of server and API aliases, tool names, and HTTP methods, after `tool:`, `tool:alias.`, `api:` and `api:alias.`.
+- A shape cache: running a workflow records the shape of each binding to `.agent-dsl-shapes.json` beside it. It feeds completion only and is never consulted by the type-checker, so a stale entry cannot become a false error.
+- Steps and output fields carry their source line, so a diagnostic can point at the right one.
+
+### Changed
+
+- `Run.connect` fetches a workflow's schemas without checking the workflow against them, which is what an editor needs: a file that does not type-check is exactly when its schemas are most wanted.
+
 ## 0.4.0.0 -- 2026-08-28
 
 ### Added

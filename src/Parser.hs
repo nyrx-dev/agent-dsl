@@ -149,16 +149,20 @@ parenthesised = do
 
 stepParser :: Parser Step
 stepParser = do
+  line <- currentLine
   keyword "step"
   name <- lexeme identifier
   _ <- symbol "="
   call <- toolCallParser <|> apiCallParser
   _ <- symbol "->"
   bind <- lexeme identifier
-  return Step { stepName = name, stepCall = call, bindsTo = bind }
+  return Step { stepName = name, stepCall = call, bindsTo = bind, stepLine = line }
 
 currentColumn :: Parser Pos
 currentColumn = sourceColumn <$> getSourcePos
+
+currentLine :: Parser Int
+currentLine = (unPos . sourceLine) <$> getSourcePos
 
 -- | A node belonging to a branch arm, which must be indented past the column
 -- the 'if' starts at. Without this the arms are unbounded and swallow every
@@ -238,10 +242,11 @@ inputsBlockParser = do
 
 outputFieldParser :: Parser OutputField
 outputFieldParser = do
+  line <- currentLine
   name <- plainIdentifier
   _ <- symbol "="
   value <- argParser
-  return OutputField { outputName = name, outputValue = value }
+  return OutputField { outputName = name, outputValue = value, outputLine = line }
 
 -- | What the workflow reports when it finishes. Without this block every
 -- binding is printed, which is rarely what a caller wants.

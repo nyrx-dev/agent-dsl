@@ -250,11 +250,24 @@ To use it from a client, point that client at `agent-dsl --serve <your-workflow-
 
 ## Editor support
 
+`agent-dsl --lsp` is a language server for `.agent` files. It offers:
+
+- **Diagnostics** — everything the type-checker finds, on the line it belongs to, as you type: an unknown tool, the wrong number of arguments, a binding that was never defined, a path a result cannot have.
+- **Completion of a path into an earlier result.** After `answer.` it offers the fields that result actually has. For an MCP tool this comes from the server's schema, so it works before the workflow has ever run. For an HTTP endpoint, which publishes no schema, it comes from the shape recorded on the last run — what the API returned, not what it documents.
+- **Completion of aliases, tool names and HTTP methods** after `tool:`, `tool:alias.`, `api:` and `api:alias.`.
+
+Running a workflow writes a `.agent-dsl-shapes.json` beside it, recording the shape of each binding. It feeds completion only, never the type-checker, so a stale entry can never turn into a false error. Delete it freely; the next run writes it again.
+
+Schemas are fetched when a file is opened and when it is saved, never per keystroke.
+
+## Editor support
+
 A companion VS Code extension ([`agent-dsl-vscode`](https://github.com/Turtle-dev3/agent-dsl-vscode)) provides:
 
 - Syntax highlighting for `.agent` files
 - A custom file icon
 - A "run" button in the editor toolbar (shells out to the installed `agent-dsl` binary)
+- Diagnostics and completion, by running `agent-dsl --lsp`
 
 ## Known limitations
 
