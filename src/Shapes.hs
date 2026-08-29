@@ -14,6 +14,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Map as Map
 
@@ -37,7 +38,10 @@ inferSchema Null       = object []
 cacheFile :: FilePath -> FilePath
 cacheFile workflowPath = takeDirectory workflowPath </> ".agent-dsl-shapes.json"
 
--- | Record the shape of every binding a run produced.
+-- | Record the shape of every binding a run produced, replacing whatever
+-- that workflow recorded before. Replacing rather than accumulating keeps a
+-- renamed binding from lingering, at the cost of only ever knowing the arm
+-- of a branch that the last run actually took.
 recordShapes :: FilePath -> Map.Map String Value -> IO ()
 recordShapes workflowPath bindings = do
   let path = cacheFile workflowPath
@@ -57,13 +61,16 @@ loadShapes workflowPath = do
       Map.fromList [(Key.toString k, v) | (k, v) <- KeyMap.toList entry]
     _ -> Map.empty
 
+-- | Read strictly. A lazy read keeps the handle open until the content is
+-- forced, and rewriting the same file in the same process then fails with
+-- "resource busy" -- which is exactly what recording does.
 readCache :: FilePath -> IO Object
 readCache path = do
   present <- doesFileExist path
   if not present
     then return KeyMap.empty
     else do
-      contents <- BL.readFile path
-      return $ case decode contents of
+      contents <- BS.readFile path
+      return $ case decode (BL.fromStrict contents) of
         Just (Object fields) -> fields
         _                    -> KeyMap.empty

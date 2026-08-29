@@ -18,7 +18,10 @@ import qualified Lsp
 import qualified Shapes
 import Data.List (isInfixOf)
 import Interpreter (buildArgs, collectOutputs, evalCondition, isTruthy, resolveInput)
+import Control.Exception (SomeException, try)
+import System.Directory (createDirectoryIfMissing, doesFileExist, getTemporaryDirectory, removeFile)
 import System.Environment (setEnv, unsetEnv)
+import System.FilePath ((</>))
 import Parser (workflowParser)
 import Schema hiding (toolName)
 import qualified Schema
@@ -50,6 +53,10 @@ main = do
 
   putStrLn "Shapes and completion"
   mapM_ (uncurry it) shapeTests
+
+  putStrLn "Shape cache"
+  cacheResults <- cacheTests
+  mapM_ (uncurry it) cacheResults
 
   putStrLn "Auth"
   authResults <- authTests
@@ -843,3 +850,40 @@ shapeTests =
         == ["gh"]
     )
   ]
+
+
+-- | Recording reads the cache and then rewrites it. A lazy read leaves the
+-- handle open and the rewrite fails, which no pure test would have caught.
+cacheTests :: IO [(String, Bool)]
+cacheTests = do
+  dir <- fmap (</> "agent-dsl-cache-test") getTemporaryDirectory
+  createDirectoryIfMissing True dir
+  let workflow = dir </> "w.agent"
+  removeIfPresent (Shapes.cacheFile workflow)
+
+  Shapes.recordShapes workflow
+    (Map.fromList [("first", object ["a" .= (1 :: Int)])])
+  afterFirst <- Shapes.loadShapes workflow
+
+  -- The run that used to fail: the file now exists, so it is read first.
+  second <- try (Shapes.recordShapes workflow
+                   (Map.fromList [("second", object ["b" .= (2 :: Int)])]))
+  afterSecond <- Shapes.loadShapes workflow
+
+  return
+    [ ("records a binding's shape", Map.keys afterFirst == ["first"])
+    , ( "rewrites a cache that already exists"
+      , case second :: Either SomeException () of
+          Left _  -> False
+          Right _ -> True
+      )
+      -- A run replaces what that workflow recorded, rather than adding to
+      -- it, so a renamed binding does not linger and keep suggesting itself.
+    , ( "replaces the shapes rather than accumulating them"
+      , Map.keys afterSecond == ["second"]
+      )
+    ]
+  where
+    removeIfPresent path = do
+      present <- doesFileExist path
+      if present then removeFile path else return ()

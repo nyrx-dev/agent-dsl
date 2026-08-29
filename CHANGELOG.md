@@ -1,5 +1,11 @@
 # Revision history for agent-dsl
 
+## 0.5.1.0 -- 2026-08-29
+
+### Fixed
+
+- Running a workflow a second time failed with `resource busy (file is locked)`. Recording the shapes read the cache lazily, which holds the handle open, and then rewrote the same file in the same process. It only showed on the second run, since the first finds no file to read.
+
 ## 0.5.0.0 -- 2026-08-28
 
 ### Added

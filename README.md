@@ -258,6 +258,8 @@ To use it from a client, point that client at `agent-dsl --serve <your-workflow-
 
 Running a workflow writes a `.agent-dsl-shapes.json` beside it, recording the shape of each binding. It feeds completion only, never the type-checker, so a stale entry can never turn into a false error. Delete it freely; the next run writes it again.
 
+Each run replaces what that workflow recorded, so a binding you rename stops being suggested — and a branch only ever contributes the arm the last run actually took.
+
 Schemas are fetched when a file is opened and when it is saved, never per keystroke.
 
 ## Editor support
