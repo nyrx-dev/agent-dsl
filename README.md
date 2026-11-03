@@ -264,20 +264,13 @@ Schemas are fetched when a file is opened and when it is saved, never per keystr
 
 ## Known limitations
 
-This is a working proof of concept, not a production tool yet. Known gaps, honestly:
+This is a proof of concept and I am not actively working on it anymore. Known gaps:
 
 - **Positional, not named, argument matching** — arguments are matched to a schema's required parameters by position, not by name. The `.agent` file's argument order must match the schema's declared order.
 - **Paths into `structuredContent` are only checked for servers that publish an `outputSchema`** — for the rest, the shape isn't knowable ahead of time and the path is caught at runtime instead.
 - **Branch conditions cover equality only** — `==` and `!=` against a JSON value, plus a truthiness test. No ordering (`greater than`), no boolean operators (`and`, `or`, `not`).
 - **No retries, loops or error branches** — a failing step stops the workflow and reports why. Real automation wants to retry a flaky call or iterate over a list, and neither is expressible yet.
 - **Key-based auth only** — a bearer token or a named header, read from the environment. No OAuth, so servers that require an authorization-code flow are still out of reach.
-
-## Roadmap
-
-- A keyword letting an AI agent supply its own content into an otherwise fixed, validated workflow
-- OAuth support for MCP servers that require it
-- Retries and error branches, so a flaky step need not end a run
-- Iteration, so a workflow can act on each item of a list
 
 ## License
 
