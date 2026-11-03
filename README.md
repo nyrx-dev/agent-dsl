@@ -4,7 +4,7 @@ A small, statically-typed language for defining and running AI agent workflows a
 
 An agent-dsl workflow is a **capability**: a fixed plan an AI agent can invoke as a single tool, without choosing what calls it makes. `agent-dsl --serve <dir>` offers a directory of workflows over MCP, one tool per workflow, each type-checked against its servers before it runs.
 
-`.agent` files describe a sequence of calls — across one or more MCP servers, plain HTTP APIs, or both — as plain text. Before anything runs, every tool call is validated against the target server's **real, live schema**. A broken or hallucinated tool reference is caught immediately, with a clear error, instead of failing mid-workflow after real network calls have already fired.
+`.agent` files describe a sequence of calls — across one or more MCP servers, plain HTTP APIs, or both — as plain text. Before anything runs, every tool call is validated against the target server's **real, live schema**. A broken tool reference can be caught before the workflow starts making tool calls.
 
 ```
 servers:
@@ -55,7 +55,7 @@ Every stage is real and independently testable:
 Requires the Haskell toolchain: [GHCup](https://www.haskell.org/ghcup/) (installs GHC + Cabal).
 
 ```bash
-git clone https://github.com/Turtle-dev3/agent-dsl.git
+git clone https://github.com/nyrx-dev/agent-dsl.git
 cd agent-dsl
 cabal build
 cabal install exe:agent-dsl --overwrite-policy=always
@@ -79,7 +79,7 @@ The suite covers the parser, type-checker, SSE framing and JSON-RPC decoding, an
 agent-dsl path/to/workflow.agent
 ```
 
-The two example files in `examples/` are a good starting point:
+The examples in `examples/` are a good starting point:
 
 - `examples/context7-demo.agent` — the smallest thing that runs: one server, one step
 - `examples/linkedin-demo.agent` — a real, working multi-server workflow (Context7 + DeepWiki)
@@ -261,15 +261,6 @@ Running a workflow writes a `.agent-dsl-shapes.json` beside it, recording the sh
 Each run replaces what that workflow recorded, so a binding you rename stops being suggested — and a branch only ever contributes the arm the last run actually took.
 
 Schemas are fetched when a file is opened and when it is saved, never per keystroke.
-
-## Editor support
-
-A companion VS Code extension ([`agent-dsl-vscode`](https://github.com/Turtle-dev3/agent-dsl-vscode)) provides:
-
-- Syntax highlighting for `.agent` files
-- A custom file icon
-- A "run" button in the editor toolbar (shells out to the installed `agent-dsl` binary)
-- Diagnostics and completion, by running `agent-dsl --lsp`
 
 ## Known limitations
 
